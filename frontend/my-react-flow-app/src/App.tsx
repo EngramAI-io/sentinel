@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import Graph from './components/Graph';
 import NodeDetails from './components/NodeDetails';
 import { useWebSocket } from './hooks/useWebSocket';
-import type { McpLog } from './types';
+// import type { McpLog } from './types';
 
 function App() {
   const [selectedNode, setSelectedNode] = useState<string | null>(null);

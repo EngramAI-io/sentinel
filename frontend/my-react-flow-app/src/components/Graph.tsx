@@ -3,11 +3,11 @@ import {
   ReactFlow,
   Background,
   Controls,
-  Node,
-  Edge,
+  type Node,
+  type Edge,
   useNodesState,
   useEdgesState,
-  NodeTypes,
+  type NodeTypes,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { McpLog, StreamDirection } from '../types';
