@@ -20,3 +20,44 @@ body {
   height: 100vh;
 }
 
+/* Base animated edge style */
+.react-flow__edge-path {
+  stroke-linecap: round;
+}
+
+/* Outbound = yellow pulsing dash moving from Agent -> Tool */
+.edge-outbound .react-flow__edge-path {
+  stroke-dasharray: 6 6;
+  animation: edge-pulse-out 0.8s linear infinite;
+}
+
+/* Inbound = green returning pulse */
+.edge-inbound .react-flow__edge-path {
+  stroke-dasharray: 4 6;
+  animation: edge-pulse-in 0.7s linear infinite;
+}
+
+/* Pulse animations */
+@keyframes edge-pulse-out {
+  0% {
+    stroke-dashoffset: 0;
+    opacity: 0.9;
+  }
+  100% {
+    stroke-dashoffset: -24;
+    opacity: 0.6;
+  }
+}
+
+@keyframes edge-pulse-in {
+  0% {
+    stroke-dashoffset: 0;
+    opacity: 0.9;
+  }
+  100% {
+    stroke-dashoffset: 24;
+    opacity: 0.6;
+  }
+}
+
+
