@@ -10,6 +10,16 @@ Whether you're building agents, debugging tool behavior, stress-testing long cha
 
 ---
 
+## 🔍 Sentinel vs Official MCP Inspector
+
+| Feature     | Official MCP Inspector                        | Your Interceptor (Sentinel)                                 |
+|-------------|------------------------------------------------|--------------------------------------------------------------|
+| **Use Case** | Testing a single tool in isolation.            | Monitoring a **live Agent** (Claude/Cursor) using tools.     |
+| **Integration** | Runs as a separate web app.                   | Runs transparently **inside your IDE / workflow**.           |
+| **Visuals** | Static lists of resources/prompts.              | **Live Force-Directed Graph** of agent–tool architecture.     |
+| **Security** | None (purely for debugging).                    | **Active Blocking** & **PII Redaction**.                     |
+
+
 # 🚀 Why Sentinel Exists
 
 LLM agents call tools. Tools call back. Debugging that flow often feels like working blindfolded.
