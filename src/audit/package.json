@@ -1,0 +1,28 @@
+{
+  "name": "@sentinel/audit",
+  "version": "1.0.0",
+  "description": "Enterprise-grade OWASP MCP08 audit & telemetry with cryptographic integrity",
+  "main": "index.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "node --loader ts-node/esm test.ts"
+  },
+  "keywords": [
+    "audit",
+    "security",
+    "logging",
+    "cryptography",
+    "siem",
+    "opentelemetry"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@types/node": "^20.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "ts-node": "^10.9.0"
+  }
+}

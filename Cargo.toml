@@ -7,6 +7,14 @@ edition = "2021"
 name = "sentinel"
 path = "src/main.rs"
 
+[[bin]]
+name = "crypto-engine"
+path = "src/bin/crypto-engine.rs"
+
+[[bin]]
+name = "log-signer"
+path = "src/bin/log-signer.rs"
+
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 clap = { version = "4", features = ["derive"] }
@@ -23,6 +31,7 @@ aho-corasick = "1"
 regex = "1"
 dirs = "5"
 lazy_static = "1"
+hex = "0.4"
 
 [profile.release]
 lto = "fat"
