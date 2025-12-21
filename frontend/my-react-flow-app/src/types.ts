@@ -10,5 +10,9 @@ export interface McpLog {
   request_id?: number;
   latency_ms?: number;
   payload: any;
+  session_id: String;
+  trace_id: String;
+  span_id: String;
+  parent_span_id?: String;
 }
 

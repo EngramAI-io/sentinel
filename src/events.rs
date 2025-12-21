@@ -16,6 +16,12 @@ pub struct McpLog {
     pub request_id: Option<u64>,
     pub latency_ms: Option<u64>,
     pub payload: serde_json::Value,
+
+    // Trace fields
+    pub session_id: String,
+    pub trace_id: String,
+    pub span_id: String,
+    pub parent_span_id: Option<String>,
 }
 
 impl McpLog {
@@ -23,6 +29,10 @@ impl McpLog {
         direction: StreamDirection,
         message: JsonRpcMessage,
         latency_ms: Option<u64>,
+        session_id: &str,
+        trace_id: &str,
+        span_id: String,
+        parent_span_id: Option<String>,
     ) -> Self {
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -49,6 +59,10 @@ impl McpLog {
             request_id,
             latency_ms,
             payload,
+            session_id: session_id.to_string(),
+            trace_id: trace_id.to_string(),
+            span_id,
+            parent_span_id,
         }
     }
 }

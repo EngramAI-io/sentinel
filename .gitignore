@@ -25,7 +25,7 @@ npm-debug.log*
 Thumbs.db
 
 sentinel_debug.jsonl
-test_mcp.py
+fake_mcp.js
 
 frontend/my-react-flow-app/src/demo/demoEvents.ts
 frontend/my-react-flow-app/src/hooks/useDemoEvents.ts

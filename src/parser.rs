@@ -1,105 +1,122 @@
 use crate::events::{McpLog, StreamDirection};
 use crate::protocol::JsonRpcMessage;
-use crate::redaction;
-use crate::session::SessionState;
-use bytes::Bytes;
-use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use crate::session::Session;
 
+use bytes::Bytes;
+use serde_json;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Instant;
+use tokio::sync::mpsc;
+use uuid::Uuid;
+
+/// Parser converts raw tapped bytes into structured MCP logs
 pub struct Parser {
-    session_state: Arc<Mutex<SessionState>>,
-    log_sender: mpsc::Sender<McpLog>,
+    log_tx: mpsc::Sender<McpLog>,
+    session: Arc<Session>,
+
+    /// request_id -> (span_id, start_time)
+    pending_spans: HashMap<u64, (String, Instant)>,
 }
 
 impl Parser {
-    pub fn new(log_sender: mpsc::Sender<McpLog>) -> Self {
+    pub fn new(
+        log_tx: mpsc::Sender<McpLog>,
+        session: Arc<Session>,
+    ) -> Self {
         Self {
-            session_state: Arc::new(Mutex::new(SessionState::new())),
-            log_sender,
+            log_tx,
+            session,
+            pending_spans: HashMap::new(),
         }
     }
 
-    /// Main loop: consume tapped bytes from the proxy and parse them into logs.
     pub async fn process_stream(
-        &self,
+        mut self,
         mut tap_rx: mpsc::Receiver<(StreamDirection, Bytes)>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> anyhow::Result<()> {
         while let Some((direction, bytes)) = tap_rx.recv().await {
-            if let Err(e) = self.handle_chunk(direction, bytes).await {
-                eprintln!("Parser error while handling chunk: {}", e);
-            }
-        }
-        Ok(())
-    }
-
-    async fn handle_chunk(
-        &self,
-        direction: StreamDirection,
-        bytes: Bytes,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let text = match std::str::from_utf8(&bytes) {
-            Ok(t) => t,
-            Err(_) => return Ok(()), // Non-UTF8, skip
-        };
-
-        // Many JSON-RPC transports send one JSON object per line. We’ll assume that here.
-        for line in text.lines() {
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
-            }
-
-            let value: serde_json::Value = match serde_json::from_str(line) {
-                Ok(v) => v,
-                Err(_) => {
-                    // Not valid JSON; ignore
-                    continue;
-                }
-            };
-
-            let msg: JsonRpcMessage = match serde_json::from_value(value.clone()) {
+            let message: JsonRpcMessage = match serde_json::from_slice(&bytes) {
                 Ok(m) => m,
-                Err(_) => {
-                    // Not a valid JSON-RPC message; ignore
-                    continue;
-                }
+                Err(_) => continue, // Ignore non-JSON
             };
 
-            // Track latency based on request / response ids
-            let mut latency_ms = None;
+            match (&direction, &message) {
+                // ----------------------------
+                // Outbound REQUEST
+                // ----------------------------
+                (StreamDirection::Outbound, JsonRpcMessage::Request(req)) => {
+                    let span_id = Uuid::new_v4().to_string();
+                    let start = Instant::now();
 
-            match &msg {
-                JsonRpcMessage::Request(req) => {
-                    if let Some(id) = req.id {
-                        let mut state = self.session_state.lock().await;
-                        state.record_request(id);
+                    if let Some(request_id) = req.id {
+                        self.pending_spans.insert(request_id, (span_id.clone(), start));
                     }
+
+                    let log = McpLog {
+                        timestamp: current_timestamp(),
+                        direction,
+                        method: Some(req.method.clone()),
+                        request_id: req.id,
+                        latency_ms: None,
+                        payload: serde_json::to_value(req).unwrap_or_default(),
+
+                        session_id: self.session.session_id.clone(),
+                        trace_id: self.session.trace_id.clone(),
+                        span_id,
+                        parent_span_id: None,
+                    };
+
+                    let _ = self.log_tx.send(log).await;
                 }
-                JsonRpcMessage::Response(resp) => {
-                    if let Some(id) = resp.id {
-                        let mut state = self.session_state.lock().await;
-                        latency_ms = state.complete_request(id);
-                    }
+
+                // ----------------------------
+                // Inbound RESPONSE
+                // ----------------------------
+                (StreamDirection::Inbound, JsonRpcMessage::Response(resp)) => {
+                    let (span_id, latency_ms) = match resp.id {
+                        Some(id) => {
+                            if let Some((span_id, start)) = self.pending_spans.remove(&id) {
+                                let latency =
+                                    start.elapsed().as_millis() as u64;
+                                (span_id, Some(latency))
+                            } else {
+                                (Uuid::new_v4().to_string(), None)
+                            }
+                        }
+                        None => (Uuid::new_v4().to_string(), None),
+                    };
+
+                    let log = McpLog {
+                        timestamp: current_timestamp(),
+                        direction,
+                        method: None,
+                        request_id: resp.id,
+                        latency_ms,
+                        payload: serde_json::to_value(resp).unwrap_or_default(),
+
+                        session_id: self.session.session_id.clone(),
+                        trace_id: self.session.trace_id.clone(),
+                        span_id: span_id.clone(),
+                        parent_span_id: Some(span_id),
+                    };
+
+                    let _ = self.log_tx.send(log).await;
                 }
-            }
 
-            // Build log record
-            let mut log = McpLog::from_message(direction, msg, latency_ms);
-
-            // Redact PII/secrets
-            redaction::redact_log(&mut log);
-
-            // Try to send; if channel is full, drop (fail-open)
-            if let Err(e) = self.log_sender.try_send(log) {
-                eprintln!("Warning: Log channel full, dropping log: {}", e);
+                _ => {}
             }
         }
 
         Ok(())
     }
+}
 
-    pub async fn cleanup_old_requests(&self) {
-        let mut state = self.session_state.lock().await;
-        state.clear_old_requests(300); // Clear requests older than 5 minutes
-    }
+fn current_timestamp() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }

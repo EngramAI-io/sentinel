@@ -1,7 +1,10 @@
 use clap::{Args, Parser as ClapParser, Subcommand};
 use std::process;
+use std::sync::Arc;
+use session::Session;
 use tokio::sync::{broadcast, mpsc};
 use tokio::io::AsyncWriteExt;
+use uuid::Uuid;
 
 mod proxy;
 mod protocol;
@@ -67,9 +70,15 @@ async fn main() {
                     eprintln!("Server error: {}", e);
                 }
             });
+            
+            
+            let session = Arc::new(Session {
+            session_id: Uuid::new_v4().to_string(),
+            trace_id: Uuid::new_v4().to_string(),
+        });
 
             // Start parser
-            let parser = LogParser::new(log_tx);
+            let parser = LogParser::new(log_tx, session.clone());
             let parser_handle = tokio::spawn(async move {
                 if let Err(e) = parser.process_stream(tap_rx).await {
                     eprintln!("Parser error: {}", e);

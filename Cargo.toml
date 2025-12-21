@@ -18,11 +18,13 @@ axum = { version = "0.7", features = ["ws"] }
 tokio-tungstenite = { version = "*", features = ["tls"] }
 rust-embed = "8"
 tokio-stream = { version = "0.1", features = ["sync"] } # enable sync feature for BroadcastStream
+uuid = {version = "1.19.0", features = ["v4"]}
 mime_guess = "2.0"
 aho-corasick = "1"
 regex = "1"
 dirs = "5"
 lazy_static = "1"
+anyhow = "1.0"
 
 [profile.release]
 lto = "fat"
