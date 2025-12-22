@@ -48,6 +48,9 @@ async fn main() {
 
     let cli = Cli::parse();
 
+    let run_id = Uuid::new_v4().to_string();
+    println!("Sentinel run_id = {}", run_id);
+
     match cli.command {
         Commands::Run(args) => {
             if args.command.is_empty() {
@@ -56,8 +59,32 @@ async fn main() {
             }
 
             // Create channels for tapping and logging
-            let (tap_tx, tap_rx) = mpsc::channel::<(StreamDirection, bytes::Bytes)>(1000);
+            // Create channels: raw taps -> sequencer -> parser logs
+            let (raw_tx, mut raw_rx) = mpsc::channel::<events::RawTap>(1000);
+            let (tap_tx, tap_rx) = mpsc::channel::<events::TapEvent>(1000);
+
             let (log_tx, mut log_rx) = mpsc::channel::<events::McpLog>(1000);
+            let log_tx_clone = log_tx.clone();
+
+            // Sequencer task: assigns canonical event_id in a single place
+            let sequencer_handle = tokio::spawn(async move {
+                let mut next_id: u64 = 1;
+                while let Some(raw) = raw_rx.recv().await {
+                    let evt = events::TapEvent {
+                        event_id: next_id,
+                        direction: raw.direction,
+                        bytes: raw.bytes,
+                        observed_ts_ms: raw.observed_ts_ms,
+                    };
+                    next_id += 1;
+
+                    // If parser is gone, stop sequencing
+                    if tap_tx.send(evt).await.is_err() {
+                        break;
+                    }
+                }
+            });
+
             let log_tx_clone = log_tx.clone();
 
             // Broadcast channel for WebSocket clients
@@ -78,7 +105,7 @@ async fn main() {
         });
 
             // Start parser
-            let parser = LogParser::new(log_tx, session.clone());
+            let parser = LogParser::new(run_id.clone(), log_tx_clone, session);
             let parser_handle = tokio::spawn(async move {
                 if let Err(e) = parser.process_stream(tap_rx).await {
                     eprintln!("Parser error: {}", e);
@@ -128,16 +155,17 @@ async fn main() {
 
             // Run the proxy in the current task
             let command = args.command;
-            if let Err(e) = run_proxy(command, tap_tx).await {
+            if let Err(e) = run_proxy(command, raw_tx).await {
                 eprintln!("Proxy error: {}", e);
                 process::exit(1);
             }
 
             // If proxy exits, shut down parser/log/server
-            drop(log_tx_clone); // close log channel
+            drop(log_tx); // close log channel
             let _ = parser_handle.abort();
             let _ = log_writer_handle.abort();
             let _ = server_handle.abort();
+            let _ = sequencer_handle.abort();
         }
     }
 }
