@@ -26,6 +26,8 @@ Thumbs.db
 
 sentinel_debug.jsonl
 fake_mcp.js
+fake_agent.js
 
 frontend/my-react-flow-app/src/demo/demoEvents.ts
 frontend/my-react-flow-app/src/hooks/useDemoEvents.ts
+

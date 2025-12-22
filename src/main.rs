@@ -70,6 +70,7 @@ async fn main() {
             let sequencer_handle = tokio::spawn(async move {
                 let mut next_id: u64 = 1;
                 while let Some(raw) = raw_rx.recv().await {
+
                     let evt = events::TapEvent {
                         event_id: next_id,
                         direction: raw.direction,

@@ -13,7 +13,6 @@ pub async fn run_proxy(
         return Err("Empty command".into());
     }
 
-    // Spawn child process
     let mut child = Command::new(&command[0])
         .args(&command[1..])
         .stdin(Stdio::piped())
@@ -21,23 +20,13 @@ pub async fn run_proxy(
         .stderr(Stdio::inherit())
         .spawn()?;
 
-    // Child stdin (we'll write to this)
-    let mut child_stdin = child
-        .stdin
-        .take()
-        .ok_or("Failed to open child stdin")?;
+    let mut child_stdin = child.stdin.take().ok_or("Failed to open child stdin")?;
+    let child_stdout = child.stdout.take().ok_or("Failed to open child stdout")?;
 
-    // Child stdout (we'll read from this)
-    let child_stdout = child
-        .stdout
-        .take()
-        .ok_or("Failed to open child stdout")?;
-
-    // Parent stdin/stdout
     let parent_stdin = tokio::io::stdin();
     let mut parent_stdout = tokio::io::stdout();
 
-    // Task: parent stdin -> child stdin (Outbound) + tap (by line)
+    // ----- OUTBOUND: parent stdin -> child stdin -----
     let tx_out = raw_sender.clone();
     let stdin_handle = tokio::spawn(async move {
         let mut reader = BufReader::new(parent_stdin);
@@ -46,35 +35,37 @@ pub async fn run_proxy(
         loop {
             line.clear();
             match reader.read_until(b'\n', &mut line).await {
-                Ok(0) => break, // EOF
+                Ok(0) => break,
                 Ok(_) => {
-                    // Forward to child stdin immediately (never block execution on logging)
-                    if let Err(e) = child_stdin.write_all(&line).await {
-                        eprintln!("Error writing to child stdin: {}", e);
+                    // Forward FIRST
+                    if child_stdin.write_all(&line).await.is_err() {
                         break;
                     }
                     let _ = child_stdin.flush().await;
 
-                    // Tap (non-blocking)
+                    // FIX: lossless tap
                     let observed_ts_ms = current_timestamp_ms();
                     let data = Bytes::copy_from_slice(&line);
-                    let _ = tx_out.try_send(RawTap {
-                        direction: StreamDirection::Outbound,
-                        bytes: data,
-                        observed_ts_ms,
-                    });
+                    if tx_out
+                        .send(RawTap {
+                            direction: StreamDirection::Outbound,
+                            bytes: data,
+                            observed_ts_ms,
+                        })
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
                 }
-                Err(e) => {
-                    eprintln!("Error reading from stdin: {}", e);
-                    break;
-                }
+                Err(_) => break,
             }
         }
 
         let _ = child_stdin.shutdown().await;
     });
 
-    // Task: child stdout -> parent stdout (Inbound) + tap (by line)
+    // ----- INBOUND: child stdout -> parent stdout -----
     let tx_in = raw_sender.clone();
     let stdout_handle = tokio::spawn(async move {
         let mut reader = BufReader::new(child_stdout);
@@ -83,38 +74,34 @@ pub async fn run_proxy(
         loop {
             line.clear();
             match reader.read_until(b'\n', &mut line).await {
-                Ok(0) => break, // EOF
+                Ok(0) => break,
                 Ok(_) => {
-                    // Tap (non-blocking)
-                    let observed_ts_ms = current_timestamp_ms();
-                    let data = Bytes::copy_from_slice(&line);
-                    let _ = tx_in.try_send(RawTap {
-                        direction: StreamDirection::Inbound,
-                        bytes: data.clone(),
-                        observed_ts_ms,
-                    });
-
-                    // Forward to parent stdout
-                    if let Err(e) = parent_stdout.write_all(&line).await {
-                        eprintln!("Error writing to stdout: {}", e);
+                    // Forward FIRST
+                    if parent_stdout.write_all(&line).await.is_err() {
                         break;
                     }
                     let _ = parent_stdout.flush().await;
+
+                    let observed_ts_ms = current_timestamp_ms();
+                    let data = Bytes::copy_from_slice(&line);
+                    if tx_in
+                        .send(RawTap {
+                            direction: StreamDirection::Inbound,
+                            bytes: data,
+                            observed_ts_ms,
+                        })
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
                 }
-                Err(e) => {
-                    eprintln!("Error reading from child stdout: {}", e);
-                    break;
-                }
+                Err(_) => break,
             }
         }
     });
 
-    // Wait for both proxy tasks to finish
     let _ = tokio::join!(stdin_handle, stdout_handle);
-
-    // Wait for child to exit
     let status = child.wait().await?;
-
-    // Exit with child's exit code
     process::exit(status.code().unwrap_or(1));
 }
