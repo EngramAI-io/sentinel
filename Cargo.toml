@@ -30,6 +30,13 @@ blake3 = "1.5"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 hex = "0.4"
 rand = "0.8"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+hkdf = "0.12"
+sha2 = "0.10"
+chacha20poly1305 = "0.10"
+zeroize = "1"
+tempfile = "3"
+
 
 [profile.release]
 lto = "fat"
