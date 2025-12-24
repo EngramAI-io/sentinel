@@ -1,4 +1,5 @@
 use crate::events::McpLog;
+use tokio::sync::RwLock;
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
@@ -23,22 +24,21 @@ struct AuthQuery {
 pub struct ServerState {
     pub tx: broadcast::Sender<McpLog>,
     pub auth_token: Option<String>,
+    pub history: RwLock<Vec<McpLog>>,
 }
 
 pub async fn start_server(
-    tx: broadcast::Sender<McpLog>,
+    state: Arc<ServerState>,
     bind_addr: &str,
-    auth_token: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let state = Arc::new(ServerState { tx, auth_token });
 
     let app = Router::new()
         .route("/ws", get(websocket_handler))
-        .with_state(state);
+        .with_state(state.clone());
 
     let addr: SocketAddr = bind_addr.parse()?;
     
-    if let Some(ref token) = auth_token {
+    if let Some(ref token) = state.auth_token {
         eprintln!("🔒 WebSocket server started with authentication on {}", addr);
         eprintln!("   Connect with: ws://{}?token={}", addr, token);
     } else {
@@ -77,12 +77,24 @@ async fn websocket_handler(
 }
 
 async fn websocket_loop(mut socket: WebSocket, state: Arc<ServerState>) {
+    // Replay historical logs first
+    {
+        let hist = state.history.read().await;
+        for log in hist.iter() {
+            if let Ok(text) = serde_json::to_string(log) {
+                if socket.send(Message::Text(text)).await.is_err() {
+                    return;
+                }
+            }
+        }
+    }
+
+    // Subscribe to live stream
     let rx = state.tx.subscribe();
     let mut stream = BroadcastStream::new(rx);
 
     eprintln!("✅ WebSocket client connected");
 
-    // We only send logs to the client; we ignore messages from the client for now.
     while let Some(Ok(log)) = stream.next().await {
         if let Ok(text) = serde_json::to_string(&log) {
             if socket.send(Message::Text(text)).await.is_err() {

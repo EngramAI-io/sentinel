@@ -62,7 +62,8 @@ pub fn install(server_name: String) -> Result<(), Box<dyn std::error::Error>> {
     let original_command = server_obj
         .get("command")
         .and_then(|v| v.as_str())
-        .ok_or("Server command not found")?;
+        .ok_or("Server command not found")?
+        .to_string();
     
     let original_args = server_obj
         .get("args")
