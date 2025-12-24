@@ -1,70 +1,174 @@
-# Sentinel - The MCP Interceptor  
-![MCP Proxy Demo](./assets/engram_demo.gif)
+# Sentinel - The MCP Interceptor
+![MCP Proxy Demo](./assets/Sentinel_Graph_Demo.gif)
 
-> **A drop-in, zero-config, unstoppable tap into Model Context Protocol traffic.**  
-> Watch your LLM agent *think*, *reach out to tools*, and *react to errors* - all rendered as a glowing, real-time, force-directed neural map.
+> **A transparent, fail-open observability sidecar for Model Context Protocol (MCP).**  
+> Sentinel provides **identity**, **ordering**, and **integrity** guarantees for agent ↔ tool interactions - without modifying execution or coupling to agents.
 
-Sentinel acts like a **transparent, fail-open sidecar** that sits between your LLM client and its MCP tools. It doesn’t change the traffic. It doesn’t interfere. It simply *sees everything*, interprets it, and broadcasts a structured event stream to a front-end visualization that feels more like a sci-fi UI than a dev tool.
+Sentinel sits invisibly between an LLM client and its MCP tools, acting as a **passive, non-blocking tap** into live agent traffic. It does not alter requests. It does not gate execution. It does not impose policy.
 
-Whether you're building agents, debugging tool behavior, stress-testing long chains, or injecting observability into a black-box LLM workflow—**Sentinel makes the invisible visible.**
+Instead, Sentinel observes MCP traffic as it flows, reconstructs a **canonical event stream**, and exposes it to real-time visualization and durable audit logs.
+
+The result:  
+You can finally **see what your agent did, in what order, and trust the record afterward** - even when the agent itself is a black box.
 
 ---
 
-## 🔍 Sentinel vs Official MCP Inspector
+## What Sentinel Is (and Is Not)
 
-| Feature     | Official MCP Inspector                        | Your Interceptor (Sentinel)                                 |
-|-------------|------------------------------------------------|--------------------------------------------------------------|
-| **Use Case** | Testing a single tool in isolation.            | Monitoring a **live Agent** (Claude/Cursor) using tools.     |
-| **Integration** | Runs as a separate web app.                   | Runs transparently **inside your IDE / workflow**.           |
-| **Visuals** | Static lists of resources/prompts.              | **Live Force-Directed Graph** of agent–tool architecture.     |
-| **Security** | None (purely for debugging).                    | **Active Blocking** & **PII Redaction**.                     |
+**Sentinel is:**
+- A transparent MCP sidecar
+- A canonical event recorder
+- A real-time observability layer
+- A cryptographically verifiable audit tap
 
+**Sentinel is not:**
+- An execution engine
+- A policy enforcer
+- A tool broker
+- A rate limiter
+- A replay controller
 
-# 🚀 Why Sentinel Exists
+Agents and tools continue to function **exactly the same** with or without Sentinel.
 
-LLM agents call tools. Tools call back. Debugging that flow often feels like working blindfolded.
+---
 
-Sentinel removes the blindfold.
+## Sentinel vs Official MCP Inspector
 
-You’ll get:
+| Feature | Official MCP Inspector | Sentinel |
+|------|-----------------------|----------|
+| Primary Use | Isolated tool testing | Observing a **live agent** using tools |
+| Integration | Separate web UI | Transparent sidecar in your workflow |
+| Ordering | Implicit / undefined | **Canonical, monotonic event ordering** |
+| Correlation | Per-request only | **Session, trace, and span continuity** |
+| Auditability | None | **Append-only, signed, optional encrypted logs** |
+| Failure Mode | Stops visibility | **Fail-open: execution continues** |
 
-- Every MCP request in real-time  
-- Every response, including failures  
-- Latency by method  
-- Request → response correlation  
-- Fully redacted sensitive fields  
-- A gorgeous visualization that instantly shows what your agent is doing  
+---
 
-It’s like Chrome DevTools…  
-…but for MCP agents.
+## Why Sentinel Exists
+
+LLM agents reason implicitly.  
+Tool calls happen asynchronously.  
+Failures often appear *after* the cause.
+
+Traditional logging breaks down.
+
+Sentinel exists to provide **observability guarantees** that agent systems implicitly rely on but rarely formalize.
+
+With Sentinel, you get:
+
+- A single, ordered history of agent activity  
+- Request → response correlation across tools  
+- Latency and error visibility by method  
+- Durable logs you can replay and verify later  
+- A real-time graph that makes causality visible  
+
+Think **Chrome DevTools** - 
+but for **agent toolchains**.
+
+---
+
+## 🛡 Sentinel’s Core Guarantees
+
+Sentinel provides **optional, non-invasive guarantees** around agent interactions.  
+When enabled, these guarantees support debugging, auditing, and security analysis.  
+When absent, agents continue to function normally - but these properties are lost.
+
+---
+
+### 1. Session Identity & Trace Continuity
+
+**Guarantee:**  
+Every observed agent action is causally attributable to a session and execution trace.
+
+**Sentinel provides:**
+- Stable `session_id` and `trace_id` for the lifetime of a run
+- Per-request `span_id` with request ↔ response correlation
+- Consistent attribution across tools and errors
+
+**Without it:**  
+Logs become fragmented and reasoning becomes opaque.
+
+---
+
+### 2. Canonical, Ordered Event Stream
+
+**Guarantee:**  
+There exists a single, consistent, replayable history of agent activity.
+
+**Sentinel provides:**
+- A monotonic, globally ordered event stream
+- Append-only semantics
+- Stable event IDs independent of wall-clock time
+
+**Key property:**  
+Ordering is derived from **observation at the Sentinel boundary**, not timestamps.
+
+**Without it:**  
+Events exist, but ordering is ambiguous and trust erodes.
+
+---
+
+### 3. Cryptographic Integrity of Telemetry
+
+**Guarantee:**  
+Observed agent behavior has not been tampered with after the fact.
+
+**Sentinel provides:**
+- Hash-chained, append-only audit records
+- Ed25519 digital signatures
+- Optional encryption at rest
+- Offline verification tooling
+
+**Important:**  
+Cryptography applies **only to telemetry**, never to execution.
+
+---
+
+## Why These Guarantees Matter Together
+
+| Property | Question Answered |
+|--------|------------------|
+| Identity | Who did what? |
+| Order | In what sequence? |
+| Integrity | Can we trust the record? |
+
+Together, these form the minimum foundation required for **serious observability** - without enforcing policy or constraining agents.
+
+---
+
+## Design Philosophy
+
+- Observe, never decide  
+- Record, never enforce  
+- Fail open, not closed  
+- Trust comes from visibility, not control  
 
 ---
 
 # ✨ Core Features
 
-### **📡 Transparent MCP Sidecar**
+### 📡 Transparent MCP Sidecar
 Drop Sentinel in front of any MCP server and instantly get deep visibility - no code changes, no rewrites, no patching.
 
-### **⚡ Zero-Copy, Sub-Millisecond Proxying**
+### ⚡ Zero-Copy, Sub-Millisecond Proxying
 Sentinel intercepts JSON-RPC traffic without buffering or mangling payloads. True pass-through with <1ms overhead.
 
-### **🧠 Real-Time Interactive Graph**
+### 🧠 Real-Time Interactive Graph
 Every tool call becomes a glowing edge.  
-Every response updates the node’s stats.  
+Every response updates node stats.  
 Errors pulse red.  
-High-latency calls glow warm.  
-Your agent’s “thought graph” becomes alive.
+High-latency calls glow warm.
 
-### **🔐 Built-in PII Redaction**
-API keys, tokens, emails, secrets - scrubbed *before* forwarding anything to the visualization layer.
+### 🔐 Built-in PII Redaction
+Sensitive fields are scrubbed **only** in observability outputs.  
+Original MCP traffic is never modified.
 
-### **💥 Fail-Open Guarantee**
-If the UI crashes or the WebSocket drops:  
-**your MCP pipeline continues unfazed.**  
-Sentinel refuses to break your agent.
+### 💥 Fail-Open Guarantee
+If the UI crashes or the WebSocket drops, **your MCP pipeline continues unfazed**.
 
-### **🖥️ Claude Desktop Ready**
-One command patches Claude Desktop to route MCP requests through Sentinel while preserving backups.
+### 🖥️ Claude Desktop Ready
+One command patches Claude Desktop while preserving automatic backups.
 
 ---
 
@@ -78,25 +182,15 @@ One command patches Claude Desktop to route MCP requests through Sentinel while 
 
 # 💎 Full Feature List
 
-- Zero-copy pass-through of stdin/stdout MCP traffic  
-- Event bus via WebSocket for live dashboards  
-- Full JSON-RPC parsing (requests, responses, errors)  
-- Request correlation via session tracking  
-- Per-method statistics:  
-  - Call count  
-  - Success count  
-  - Error count  
-  - Inbound/outbound ratio  
-  - Latency  
-- Beautiful plasma-graded background  
-- Animated edges:  
-  - Green = success  
-  - Yellow = pending  
-  - Red = failure  
-- Clickable nodes for detailed inspection  
-- Claude Desktop config patcher + auto-backup  
+- Zero-copy stdin/stdout MCP pass-through  
+- Canonical event sequencing  
+- Session / trace / span correlation  
+- WebSocket event bus  
+- Full JSON-RPC parsing  
+- Per-method latency & error metrics  
+- Interactive force-directed graph  
 - Panic recovery & safe shutdown  
-- Debug log output in NDJSON for tooling integration  
+- NDJSON audit logs for tooling integration  
 
 ---
 ## 🚀 Quick Installation
@@ -606,4 +700,3 @@ Found a security issue? Please email security@engramai.io (or your contact) inst
 ## License
 
 MIT
-
