@@ -388,19 +388,33 @@ npm run build
 ### Example: MCP Filesystem Server
 
 ```bash
+# Development (no auth)
 cargo run -- run -- npx -y @modelcontextprotocol/server-filesystem
+
+# Production (with auth)
+cargo run -- run --ws-token "secret123" --ws-bind "127.0.0.1:3000" -- npx -y @modelcontextprotocol/server-filesystem
 ```
 
 ### Example: MCP SQLite Server
 
 ```bash
-cargo run -- run -- npx -y @modelcontextprotocol/server-sqlite path/to/database.db
+cargo run -- run --ws-token "$SENTINEL_WS_TOKEN" -- npx -y @modelcontextprotocol/server-sqlite path/to/database.db
 ```
 
-### Example: Custom Server
+### Example: Custom Server with Audit Logging
 
 ```bash
-cargo run -- run -- python -m my_mcp_server
+# First generate keys
+cargo run -- keygen --out-dir ./keys
+cargo run -- recipient-keygen --out-dir ./keys
+
+# Run with full audit logging and encryption
+cargo run -- run \
+  --signing-key-b64-path ./keys/signing_key.b64 \
+  --encrypt-recipient-pubkey-b64-path ./keys/recipient_pub.b64 \
+  --audit-log ./audit.jsonl \
+  --ws-token "secret123" \
+  -- python -m my_mcp_server
 ```
 
 ## Dashboard
@@ -418,15 +432,127 @@ Click on any node to see detailed JSON-RPC payloads.
 
 ## Debugging
 
-- Logs are written to `sentinel_debug.jsonl` in JSON Lines format
+- Audit logs written to `sentinel_audit.jsonl` (configurable via `--audit-log`)
 - Panic logs go to `sentinel_panic.log`
 - Config backups are created automatically with `.backup` extension
+- Console output shows:
+  - ✅ Success indicators (green checkmarks)
+  - ❌ Error indicators (red X marks)
+  - 🔒 Security status (lock icons)
+  - ⚠️  Warnings (warning triangles)
+  - 📝 Checkpoints and audit events
 
 ## Security
 
-- PII (API keys, emails, tokens) is automatically redacted before visualization
-- Original traffic is never modified, only the visualization data is sanitized
-- Config backups are created before any modifications
+### 🔒 Built-in Security Features
+
+Sentinel is designed with security-first principles:
+
+#### **Authentication**
+- **WebSocket Token Authentication**: Protect your observability endpoint with token-based auth
+- **Environment Variable Support**: Set `SENTINEL_WS_TOKEN` to avoid exposing tokens in command history
+- **Automatic Warning**: Sentinel warns when running without authentication in production
+
+```bash
+# Secure mode (recommended)
+./sentinel run --ws-token "your-secret-token-here" -- npx @modelcontextprotocol/server-filesystem
+
+# Using environment variable (recommended for production)
+export SENTINEL_WS_TOKEN="your-secret-token-here"
+./sentinel run -- npx @modelcontextprotocol/server-filesystem
+
+# Connect from browser/client
+ws://localhost:3000/ws?token=your-secret-token-here
+```
+
+#### **Configurable Network Binding**
+- **Custom Bind Address**: Control where the WebSocket server listens
+- **Production-Ready**: Bind to specific interfaces or use Unix sockets
+
+```bash
+# Localhost only (default - most secure)
+./sentinel run --ws-bind "127.0.0.1:3000" -- your-mcp-server
+
+# All interfaces (use with authentication!)
+./sentinel run --ws-bind "0.0.0.0:3000" --ws-token "secret" -- your-mcp-server
+
+# Custom port
+./sentinel run --ws-bind "127.0.0.1:8080" -- your-mcp-server
+```
+
+#### **PII Redaction**
+- API keys, tokens, emails automatically scrubbed before visualization
+- Original MCP traffic is **never** modified - redaction only applies to observability data
+- Regex-based detection with multiple pattern types:
+  - `api_key`, `apikey`, `access_token`, `secret_key`
+  - OpenAI-style `sk-*` keys
+  - Email addresses
+  - Bearer tokens
+
+#### **Cryptographic Audit Logging**
+- **Ed25519 Digital Signatures**: Every checkpoint is cryptographically signed
+- **ChaCha20-Poly1305 Encryption**: Optional end-to-end encryption for audit logs
+- **Tamper-Evident Chains**: Hash-chained events prevent retroactive modification
+- **Verifiable Logs**: Independent verification with `sentinel verify` command
+
+```bash
+# Generate signing keypair
+./sentinel keygen --out-dir ./keys
+
+# Generate encryption keypair (optional)
+./sentinel recipient-keygen --out-dir ./keys
+
+# Run with audit logging
+./sentinel run \
+  --signing-key-b64-path ./keys/signing_key.b64 \
+  --encrypt-recipient-pubkey-b64-path ./keys/recipient_pub.b64 \
+  --audit-log ./audit.jsonl \
+  -- your-mcp-server
+
+# Verify audit log integrity
+./sentinel verify \
+  --log ./audit.jsonl \
+  --pubkey-b64-path ./keys/signing_pubkey.b64 \
+  --decrypt-recipient-privkey-b64-path ./keys/recipient_priv.b64
+```
+
+#### **Graceful Shutdown**
+- **Signal Handling**: CTRL+C triggers graceful shutdown
+- **Flush Guarantees**: All audit logs are flushed to disk before exit
+- **Timeout Protection**: 10-second timeout prevents hanging on shutdown
+- **No Data Loss**: Event buffers are drained completely
+
+#### **Secure Dependencies**
+- **Pinned Versions**: All dependencies use specific versions (no wildcards)
+- **Latest Security Patches**: tokio-tungstenite 0.24 with all CVEs patched
+- **Memory Safety**: Pure Rust implementation with zero `unsafe` blocks
+- **Crypto Libraries**: RustCrypto audited implementations
+
+#### **Error Handling**
+- **Detailed Logging**: Comprehensive error information for debugging
+- **User-Friendly Messages**: Generic error messages prevent information disclosure
+- **Fail-Open Proxy**: MCP traffic continues even if observability fails
+- **Panic Recovery**: Custom panic handler prevents crashes from affecting MCP pipeline
+
+### Security Best Practices
+
+1. **Always use authentication** in production environments
+2. **Bind to localhost** unless you need remote access
+3. **Enable audit log encryption** for sensitive environments
+4. **Rotate keys periodically** using the keygen commands
+5. **Monitor logs** for unauthorized access attempts
+6. **Keep Sentinel updated** to get latest security patches
+
+### Security Disclosure
+
+Found a security issue? Please email security@engramai.io (or your contact) instead of opening a public issue.
+
+### Config Backups
+
+- Config backups are created automatically before any modifications
+- Backup location: 
+  - **Linux/macOS**: `~/.config/claude-desktop/claude_desktop_config.json.backup`
+  - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json.backup`
 
 ## License
 

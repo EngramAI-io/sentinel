@@ -38,14 +38,16 @@ function App() {
               setViewMode((m) => (m === 'tools' ? 'timeline' : 'tools'))
             }
             style={{
-              padding: '6px 12px',
+              padding: '8px 16px',
               fontSize: 12,
               fontWeight: 600,
-              background: '#111',
-              color: '#fff',
-              border: '1px solid #333',
-              borderRadius: 6,
+              background: '#161b22',
+              color: '#f0f6fc',
+              border: '1px solid #30363d',
+              borderRadius: 8,
               cursor: 'pointer',
+              boxShadow: '0 0 10px rgba(139, 92, 246, 0.3)',
+              transition: 'all 0.2s ease',
             }}
           >
             {viewMode === 'tools' ? 'Timeline View' : 'Tool View'}
@@ -55,7 +57,7 @@ function App() {
             <span
               style={{
                 fontSize: 11,
-                color: '#aaa',
+                color: '#8b949e',
                 alignSelf: 'center',
               }}
             >
@@ -81,8 +83,9 @@ function App() {
         <div
           style={{
             width: 400,
-            borderLeft: '1px solid #333',
+            borderLeft: '1px solid #30363d',
             overflowY: 'auto',
+            background: '#0d1117',
           }}
         >
           <NodeDetails

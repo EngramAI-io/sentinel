@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useMemo } from 'react';
 import {
   ReactFlow,
   Background,
@@ -11,6 +11,7 @@ import {
   useEdgesState,
   type NodeTypes,
   type NodeProps,
+  BackgroundVariant,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { McpLog } from '../types';
@@ -19,7 +20,7 @@ import { StreamDirection } from '../types';
 interface GraphProps {
   events: McpLog[];
   onNodeClick: (nodeId: string | null) => void;
-  selectedNode: string | null; // requestId as string
+  selectedNode: string | null;
 }
 
 type CustomNodeData = {
@@ -38,12 +39,14 @@ type CustomNodeData = {
 type ClusterNodeData = {
   label: string;
   color: string;
+  glowColor: string;
 };
 
 type ClusterStats = {
   id: string;
   label: string;
   color: string;
+  glowColor: string;
   xSum: number;
   ySum: number;
   count: number;
@@ -59,37 +62,61 @@ type ToolStats = {
   maxLatency: number;
 };
 
-// ---------- helpers ----------
+// ============================================
+// THEME CONSTANTS
+// ============================================
 
-function getClusterInfo(method: string): { id: string; label: string; color: string } {
+const NEON_COLORS = {
+  green: '#22c55e',
+  greenGlow: 'rgba(34, 197, 94, 0.6)',
+  red: '#ef4444',
+  redGlow: 'rgba(239, 68, 68, 0.6)',
+  purple: '#8b5cf6',
+  purpleGlow: 'rgba(139, 92, 246, 0.6)',
+  cyan: '#06b6d4',
+  yellow: '#eab308',
+  orange: '#f97316',
+};
+
+const BG_COLORS = {
+  primary: '#0d1117',
+  secondary: '#161b22',
+  card: '#1c2128',
+};
+
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
+function getClusterInfo(method: string): { id: string; label: string; color: string; glowColor: string } {
   if (method.startsWith('postgres.') || method.startsWith('redis.')) {
-    return { id: 'db', label: 'Databases', color: 'rgba(56,189,248,0.25)' }; // cyan-ish
+    return { id: 'db', label: 'Databases', color: 'rgba(6, 182, 212, 0.15)', glowColor: NEON_COLORS.cyan };
   }
   if (method.startsWith('github.')) {
-    return { id: 'github', label: 'GitHub', color: 'rgba(251,113,133,0.28)' }; // pink
+    return { id: 'github', label: 'GitHub', color: 'rgba(139, 92, 246, 0.15)', glowColor: NEON_COLORS.purple };
   }
   if (method.startsWith('slack.')) {
-    return { id: 'slack', label: 'Slack', color: 'rgba(74,222,128,0.25)' }; // green
+    return { id: 'slack', label: 'Slack', color: 'rgba(34, 197, 94, 0.12)', glowColor: NEON_COLORS.green };
   }
   if (method.startsWith('kubernetes.')) {
-    return { id: 'k8s', label: 'Kubernetes', color: 'rgba(129,140,248,0.25)' }; // indigo
+    return { id: 'k8s', label: 'Kubernetes', color: 'rgba(59, 130, 246, 0.15)', glowColor: '#3b82f6' };
   }
   if (method.startsWith('llm.')) {
-    return { id: 'llm', label: 'LLM Tools', color: 'rgba(250,204,21,0.28)' }; // yellow
+    return { id: 'llm', label: 'LLM Tools', color: 'rgba(234, 179, 8, 0.15)', glowColor: NEON_COLORS.yellow };
   }
   if (method.startsWith('fs.')) {
-    return { id: 'fs', label: 'Filesystem', color: 'rgba(148,163,184,0.25)' }; // slate
+    return { id: 'fs', label: 'Filesystem', color: 'rgba(148, 163, 184, 0.12)', glowColor: '#94a3b8' };
   }
   if (method.startsWith('browser.')) {
-    return { id: 'browser', label: 'Browser', color: 'rgba(251,146,60,0.25)' }; // orange
+    return { id: 'browser', label: 'Browser', color: 'rgba(249, 115, 22, 0.15)', glowColor: NEON_COLORS.orange };
   }
   if (method.startsWith('billing.')) {
-    return { id: 'billing', label: 'Billing', color: 'rgba(244,114,182,0.25)' }; // fuchsia
+    return { id: 'billing', label: 'Billing', color: 'rgba(236, 72, 153, 0.15)', glowColor: '#ec4899' };
   }
   if (method.startsWith('monitoring.')) {
-    return { id: 'monitoring', label: 'Monitoring', color: 'rgba(45,212,191,0.25)' }; // teal
+    return { id: 'monitoring', label: 'Monitoring', color: 'rgba(20, 184, 166, 0.15)', glowColor: '#14b8a6' };
   }
-  return { id: 'other', label: 'Other Tools', color: 'rgba(107,114,128,0.2)' };
+  return { id: 'other', label: 'Other Tools', color: 'rgba(107, 114, 128, 0.12)', glowColor: '#6b7280' };
 }
 
 function getToolIcon(method?: string): string {
@@ -108,17 +135,9 @@ function getToolIcon(method?: string): string {
   return '🧩';
 }
 
-function getLatencyColor(avgLatencyMs: number, hasError: boolean): string {
-  if (hasError) return '#ef4444'; // red
-
-  if (avgLatencyMs <= 50) return '#22c55e'; // fast: green
-  if (avgLatencyMs <= 150) return '#eab308'; // ok: yellow
-  if (avgLatencyMs <= 350) return '#f97316'; // slow: orange
-
-  return '#dc2626'; // very slow, deep red
-}
-
-// ------------ Custom node renderers ------------
+// ============================================
+// CUSTOM NODE COMPONENTS
+// ============================================
 
 const AgentNode: React.FC<NodeProps> = (props) => {
   const data = props.data as CustomNodeData;
@@ -127,28 +146,75 @@ const AgentNode: React.FC<NodeProps> = (props) => {
     <div
       style={{
         position: 'relative',
-        padding: '12px 28px',
-        background: '#6366f1',
+        padding: '16px 32px',
+        background: `linear-gradient(135deg, ${NEON_COLORS.purple} 0%, #7c3aed 100%)`,
         color: 'white',
         borderRadius: '999px',
-        fontSize: '18px',
+        fontSize: '20px',
         fontWeight: 700,
-        boxShadow: '0 10px 30px rgba(0, 0, 0, 0.6)',
-        border: '2px solid rgba(255,255,255,0.35)',
+        letterSpacing: '0.5px',
+        border: `2px solid rgba(255, 255, 255, 0.3)`,
+        boxShadow: `
+          0 0 20px ${NEON_COLORS.purpleGlow},
+          0 0 40px ${NEON_COLORS.purpleGlow},
+          0 0 60px rgba(139, 92, 246, 0.3),
+          inset 0 0 20px rgba(255, 255, 255, 0.1)
+        `,
+        animation: 'agent-pulse 3s ease-in-out infinite',
+        textShadow: '0 0 10px rgba(255, 255, 255, 0.5)',
       }}
     >
-      {/* Source handles only – left & right */}
       <Handle
         id="left"
         type="source"
         position={Position.Left}
-        style={{ background: '#fff', width: 8, height: 8, borderRadius: '50%' }}
+        style={{
+          background: NEON_COLORS.purple,
+          width: 10,
+          height: 10,
+          borderRadius: '50%',
+          border: '2px solid white',
+          boxShadow: `0 0 8px ${NEON_COLORS.purple}`,
+        }}
       />
       <Handle
         id="right"
         type="source"
         position={Position.Right}
-        style={{ background: '#fff', width: 8, height: 8, borderRadius: '50%' }}
+        style={{
+          background: NEON_COLORS.purple,
+          width: 10,
+          height: 10,
+          borderRadius: '50%',
+          border: '2px solid white',
+          boxShadow: `0 0 8px ${NEON_COLORS.purple}`,
+        }}
+      />
+      <Handle
+        id="top"
+        type="source"
+        position={Position.Top}
+        style={{
+          background: NEON_COLORS.purple,
+          width: 10,
+          height: 10,
+          borderRadius: '50%',
+          border: '2px solid white',
+          boxShadow: `0 0 8px ${NEON_COLORS.purple}`,
+        }}
+      />
+      <Handle
+        id="bottom"
+        type="source"
+        position={Position.Bottom}
+        style={{
+          background: NEON_COLORS.purple,
+          width: 10,
+          height: 10,
+          borderRadius: '50%',
+          border: '2px solid white',
+          boxShadow: `0 0 8px ${NEON_COLORS.purple}`,
+        }}
       />
 
       {data.label}
@@ -159,7 +225,9 @@ const AgentNode: React.FC<NodeProps> = (props) => {
 const ToolNode: React.FC<NodeProps> = (props) => {
   const data = props.data as CustomNodeData;
 
-  const baseColor = data.status === 'error' ? '#ef4444' : '#22c55e';
+  const isError = data.status === 'error';
+  const neonColor = isError ? NEON_COLORS.red : NEON_COLORS.green;
+  const neonGlow = isError ? NEON_COLORS.redGlow : NEON_COLORS.greenGlow;
   const icon = getToolIcon(data.method);
 
   const isSelected =
@@ -172,67 +240,145 @@ const ToolNode: React.FC<NodeProps> = (props) => {
       ? `${Math.round(data.avgLatencyMs)}ms`
       : '—';
 
+  const boxShadow = isSelected
+    ? `
+        0 0 20px ${neonColor},
+        0 0 40px ${neonColor},
+        0 0 60px ${neonGlow},
+        0 0 80px ${neonGlow},
+        inset 0 0 20px rgba(255, 255, 255, 0.15)
+      `
+    : `
+        0 0 15px ${neonGlow},
+        0 0 30px ${neonGlow},
+        inset 0 0 15px rgba(255, 255, 255, 0.1)
+      `;
+
   return (
     <div
       style={{
         position: 'relative',
-        padding: '10px 22px',
-        background: baseColor,
+        padding: '12px 20px',
+        background: BG_COLORS.card,
         color: 'white',
-        borderRadius: '999px',
+        borderRadius: '12px',
         fontSize: '13px',
-        fontWeight: 700,
-        boxShadow: isSelected
-          ? '0 0 22px rgba(255,255,255,0.65)'
-          : '0 10px 26px rgba(0, 0, 0, 0.6)',
-        border: isSelected ? '3px solid white' : 'none',
-        transition: 'transform 0.15s ease, box-shadow 0.15s ease',
-        transform: isSelected ? 'scale(1.08)' : 'scale(1)',
+        fontWeight: 600,
+        border: `2px solid ${neonColor}`,
+        boxShadow,
+        transition: 'all 0.2s ease',
+        transform: isSelected ? 'scale(1.05)' : 'scale(1)',
         display: 'flex',
         alignItems: 'center',
-        gap: 10,
+        gap: 12,
+        minWidth: 160,
       }}
     >
-      {/* Target handles only – left & right */}
       <Handle
         id="left"
         type="target"
         position={Position.Left}
-        style={{ background: '#fff', width: 7, height: 7, borderRadius: '50%' }}
+        style={{
+          background: neonColor,
+          width: 8,
+          height: 8,
+          borderRadius: '50%',
+          border: '2px solid white',
+          boxShadow: `0 0 6px ${neonColor}`,
+        }}
       />
       <Handle
         id="right"
         type="target"
         position={Position.Right}
-        style={{ background: '#fff', width: 7, height: 7, borderRadius: '50%' }}
+        style={{
+          background: neonColor,
+          width: 8,
+          height: 8,
+          borderRadius: '50%',
+          border: '2px solid white',
+          boxShadow: `0 0 6px ${neonColor}`,
+        }}
+      />
+      <Handle
+        id="top"
+        type="target"
+        position={Position.Top}
+        style={{
+          background: neonColor,
+          width: 8,
+          height: 8,
+          borderRadius: '50%',
+          border: '2px solid white',
+          boxShadow: `0 0 6px ${neonColor}`,
+        }}
+      />
+      <Handle
+        id="bottom"
+        type="target"
+        position={Position.Bottom}
+        style={{
+          background: neonColor,
+          width: 8,
+          height: 8,
+          borderRadius: '50%',
+          border: '2px solid white',
+          boxShadow: `0 0 6px ${neonColor}`,
+        }}
       />
 
-      <span style={{ fontSize: 18 }}>{icon}</span>
+      {/* Icon with glow */}
+      <div
+        style={{
+          fontSize: 24,
+          filter: `drop-shadow(0 0 4px ${neonColor})`,
+        }}
+      >
+        {icon}
+      </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column' }}>
-        <div>{data.label}</div>
+      {/* Content */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <div
+          style={{
+            color: neonColor,
+            textShadow: `0 0 8px ${neonGlow}`,
+            fontWeight: 700,
+          }}
+        >
+          {data.label}
+        </div>
         {data.method && (
-          <div style={{ fontSize: '11px', marginTop: 2, opacity: 0.9 }}>
+          <div
+            style={{
+              fontSize: '10px',
+              color: 'rgba(255, 255, 255, 0.6)',
+              fontFamily: 'monospace',
+            }}
+          >
             {data.method}
           </div>
         )}
         <div
           style={{
             fontSize: '10px',
-            marginTop: 4,
-            opacity: 0.9,
+            color: 'rgba(255, 255, 255, 0.5)',
             display: 'flex',
-            gap: 6,
-            flexWrap: 'wrap',
+            gap: 8,
+            marginTop: 2,
           }}
         >
-          <span>calls: {data.calls ?? 0}</span>
-          <span>out: {data.outbound ?? 0}</span>
-          <span>in: {data.inbound ?? 0}</span>
+          <span>
+            <span style={{ color: neonColor }}>{data.calls ?? 0}</span> calls
+          </span>
+          <span>
+            <span style={{ color: '#06b6d4' }}>{latencyLabel}</span>
+          </span>
           {typeof data.errors === 'number' && data.errors > 0 && (
-            <span style={{ color: '#fee2e2' }}>errors: {data.errors}</span>
+            <span style={{ color: NEON_COLORS.red }}>
+              {data.errors} err
+            </span>
           )}
-          <span>lat: {latencyLabel}</span>
         </div>
       </div>
     </div>
@@ -246,24 +392,29 @@ const ClusterNode: React.FC<NodeProps> = (props) => {
     <div
       style={{
         position: 'relative',
-        width: 260,
-        height: 260,
-        borderRadius: '999px',
-        background: data.color,
-        filter: 'blur(40px)',
-        opacity: 0.9,
+        width: 300,
+        height: 300,
+        borderRadius: '50%',
+        background: `radial-gradient(circle, ${data.color} 0%, transparent 70%)`,
+        filter: 'blur(30px)',
+        opacity: 0.8,
+        pointerEvents: 'none',
       }}
     >
       <div
         style={{
           position: 'absolute',
-          top: 14,
-          left: 20,
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
           fontSize: 11,
           fontWeight: 600,
-          color: 'rgba(226,232,240,0.95)',
+          color: data.glowColor,
           textTransform: 'uppercase',
-          letterSpacing: 0.06,
+          letterSpacing: 1,
+          textShadow: `0 0 10px ${data.glowColor}`,
+          whiteSpace: 'nowrap',
+          filter: 'blur(0)',
         }}
       >
         {data.label}
@@ -278,31 +429,56 @@ const nodeTypes: NodeTypes = {
   cluster: ClusterNode,
 };
 
+// ============================================
+// SVG FILTER DEFINITIONS FOR EDGE GLOW
+// ============================================
+
+const EdgeGlowFilters: React.FC = () => (
+  <svg style={{ position: 'absolute', width: 0, height: 0 }}>
+    <defs>
+      <filter id="glow-green" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="3" result="coloredBlur" />
+        <feMerge>
+          <feMergeNode in="coloredBlur" />
+          <feMergeNode in="SourceGraphic" />
+        </feMerge>
+      </filter>
+      <filter id="glow-red" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="4" result="coloredBlur" />
+        <feMerge>
+          <feMergeNode in="coloredBlur" />
+          <feMergeNode in="SourceGraphic" />
+        </feMerge>
+      </filter>
+    </defs>
+  </svg>
+);
+
+// ============================================
+// MAIN GRAPH COMPONENT
+// ============================================
+
 export default function Graph({ events, onNodeClick, selectedNode }: GraphProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node[]>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge[]>([]);
 
-  useEffect(() => {
-    const nodeMap = new Map<string, Node>();
-    const edgeList: Edge[] = [];
-
-    // ----- aggregate stats per method -----
-    const statsMap = new Map<string, ToolStats>();
+  // Compute aggregate stats
+  const statsMap = useMemo(() => {
+    const map = new Map<string, ToolStats>();
 
     events.forEach((e) => {
       if (!e.method || e.request_id == null) return;
       const method = e.method;
 
-      const stats: ToolStats =
-        statsMap.get(method) ?? {
-          total: 0,
-          outbound: 0,
-          inbound: 0,
-          errors: 0,
-          lastRequestId: undefined,
-          totalLatency: 0,
-          maxLatency: 0,
-        };
+      const stats: ToolStats = map.get(method) ?? {
+        total: 0,
+        outbound: 0,
+        inbound: 0,
+        errors: 0,
+        lastRequestId: undefined,
+        totalLatency: 0,
+        maxLatency: 0,
+      };
 
       stats.total += 1;
       stats.lastRequestId = e.request_id;
@@ -323,31 +499,37 @@ export default function Graph({ events, onNodeClick, selectedNode }: GraphProps)
         stats.errors += 1;
       }
 
-      statsMap.set(method, stats);
+      map.set(method, stats);
     });
 
-    // ----- central agent node -----
-    const centerX = 600;
-    const centerY = 360;
+    return map;
+  }, [events]);
 
+  useEffect(() => {
+    const nodeMap = new Map<string, Node>();
+    const edgeList: Edge[] = [];
+
+    const centerX = 600;
+    const centerY = 400;
+
+    // Central Agent Node
     const agentNode: Node = {
       id: 'agent',
       type: 'agent',
       position: { x: centerX, y: centerY },
       data: { label: 'Agent', status: 'pending', selectedId: null } as CustomNodeData,
       draggable: false,
-      style: { zIndex: 2 },
+      style: { zIndex: 10 },
     };
     nodeMap.set('agent', agentNode);
 
-    // ----- unique tool methods → radial layout -----
+    // Tool nodes in radial layout
     const toolMethods = Array.from(statsMap.keys());
-    const radius = 360; // large radius = “vast”
-
+    const radius = 320;
     const clusterMap = new Map<string, ClusterStats>();
 
     toolMethods.forEach((method, index) => {
-      const angle = (2 * Math.PI * index) / toolMethods.length;
+      const angle = (2 * Math.PI * index) / toolMethods.length - Math.PI / 2;
       const x = centerX + radius * Math.cos(angle);
       const y = centerY + radius * Math.sin(angle);
 
@@ -355,12 +537,10 @@ export default function Graph({ events, onNodeClick, selectedNode }: GraphProps)
       const stats = statsMap.get(method)!;
 
       const hasError = stats.errors > 0;
-      const avgLatency =
-        stats.inbound > 0 ? stats.totalLatency / stats.inbound : 0;
+      const avgLatency = stats.inbound > 0 ? stats.totalLatency / stats.inbound : 0;
 
       const status: CustomNodeData['status'] = hasError ? 'error' : 'success';
       const shortLabel = method.split('.').pop() || method;
-      const strokeColor = getLatencyColor(avgLatency, hasError);
 
       const toolNode: Node = {
         id: nodeId,
@@ -378,50 +558,71 @@ export default function Graph({ events, onNodeClick, selectedNode }: GraphProps)
           errors: stats.errors,
           avgLatencyMs: avgLatency,
         } as CustomNodeData,
-        style: { zIndex: 3 },
+        style: { zIndex: 5 },
       };
 
       nodeMap.set(nodeId, toolNode);
 
-      // cluster accumulation
+      // Cluster accumulation
       const clusterInfo = getClusterInfo(method);
-      const cluster =
-        clusterMap.get(clusterInfo.id) ??
-        {
-          id: clusterInfo.id,
-          label: clusterInfo.label,
-          color: clusterInfo.color,
-          xSum: 0,
-          ySum: 0,
-          count: 0,
-        };
+      const cluster = clusterMap.get(clusterInfo.id) ?? {
+        id: clusterInfo.id,
+        label: clusterInfo.label,
+        color: clusterInfo.color,
+        glowColor: clusterInfo.glowColor,
+        xSum: 0,
+        ySum: 0,
+        count: 0,
+      };
 
       cluster.xSum += x;
       cluster.ySum += y;
       cluster.count += 1;
       clusterMap.set(clusterInfo.id, cluster);
 
-      // choose handles based on where the tool sits relative to the agent
-      const toolOnRight = x >= centerX;
-      const agentHandleId = toolOnRight ? 'right' : 'left';
-      const toolHandleId = toolOnRight ? 'left' : 'right';
+      // Determine handle positions based on angle
+      const normalizedAngle = ((angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+      let agentHandle: string;
+      let toolHandle: string;
+
+      if (normalizedAngle >= 0 && normalizedAngle < Math.PI / 4) {
+        agentHandle = 'right';
+        toolHandle = 'left';
+      } else if (normalizedAngle >= Math.PI / 4 && normalizedAngle < (3 * Math.PI) / 4) {
+        agentHandle = 'bottom';
+        toolHandle = 'top';
+      } else if (normalizedAngle >= (3 * Math.PI) / 4 && normalizedAngle < (5 * Math.PI) / 4) {
+        agentHandle = 'left';
+        toolHandle = 'right';
+      } else if (normalizedAngle >= (5 * Math.PI) / 4 && normalizedAngle < (7 * Math.PI) / 4) {
+        agentHandle = 'top';
+        toolHandle = 'bottom';
+      } else {
+        agentHandle = 'right';
+        toolHandle = 'left';
+      }
+
+      // Edge with neon styling
+      const edgeColor = hasError ? NEON_COLORS.red : NEON_COLORS.green;
+      const edgeClass = hasError ? 'edge-error' : 'edge-success';
 
       edgeList.push({
         id: `edge-${nodeId}`,
         source: 'agent',
         target: nodeId,
-        sourceHandle: agentHandleId,
-        targetHandle: toolHandleId,
-        animated: true,
+        sourceHandle: agentHandle,
+        targetHandle: toolHandle,
         type: 'smoothstep',
+        className: edgeClass,
         style: {
-          stroke: strokeColor,
-          strokeWidth: hasError ? 3.2 : 2.4,
+          stroke: edgeColor,
+          strokeWidth: hasError ? 3 : 2.5,
+          filter: `drop-shadow(0 0 3px ${edgeColor}) drop-shadow(0 0 6px ${edgeColor})`,
         },
       });
     });
 
-    // ----- cluster background nodes (blurred blobs behind tools) -----
+    // Cluster background nodes
     clusterMap.forEach((cluster) => {
       if (cluster.count === 0) return;
       const cx = cluster.xSum / cluster.count;
@@ -430,10 +631,11 @@ export default function Graph({ events, onNodeClick, selectedNode }: GraphProps)
       const clusterNode: Node = {
         id: `cluster-${cluster.id}`,
         type: 'cluster',
-        position: { x: cx - 130, y: cy - 130 }, // center the blob around tools
+        position: { x: cx - 150, y: cy - 150 },
         data: {
           label: cluster.label,
           color: cluster.color,
+          glowColor: cluster.glowColor,
         } as ClusterNodeData,
         draggable: false,
         selectable: false,
@@ -445,7 +647,7 @@ export default function Graph({ events, onNodeClick, selectedNode }: GraphProps)
 
     setNodes(Array.from(nodeMap.values()));
     setEdges(edgeList);
-  }, [events, selectedNode, setNodes, setEdges]);
+  }, [statsMap, selectedNode, setNodes, setEdges]);
 
   const onNodeClickHandler = useCallback(
     (_: React.MouseEvent, node: Node) => {
@@ -460,7 +662,8 @@ export default function Graph({ events, onNodeClick, selectedNode }: GraphProps)
   );
 
   return (
-    <div style={{ width: '100%', height: '100%' }}>
+    <div style={{ width: '100%', height: '100%', background: BG_COLORS.primary }}>
+      <EdgeGlowFilters />
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -469,10 +672,22 @@ export default function Graph({ events, onNodeClick, selectedNode }: GraphProps)
         onNodeClick={onNodeClickHandler}
         nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.2 }}
+        fitViewOptions={{ padding: 0.3 }}
+        proOptions={{ hideAttribution: true }}
       >
-        <Background />
-        <Controls />
+        <Background
+          variant={BackgroundVariant.Dots}
+          gap={20}
+          size={1}
+          color="rgba(255, 255, 255, 0.05)"
+        />
+        <Controls
+          style={{
+            background: BG_COLORS.secondary,
+            borderRadius: 8,
+            border: '1px solid #30363d',
+          }}
+        />
       </ReactFlow>
     </div>
   );

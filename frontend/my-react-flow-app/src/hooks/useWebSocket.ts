@@ -13,6 +13,8 @@ export function useWebSocket(url: string): McpLog[] {
       if (!mounted) return;
 
       try {
+        // Support authentication token from URL query params
+        // Example: ws://localhost:3000/ws?token=your-token
         const ws = new WebSocket(url);
         wsRef.current = ws;
 
