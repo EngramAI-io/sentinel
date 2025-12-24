@@ -28,9 +28,10 @@ sentinel_debug.jsonl
 sentinel_audit.jsonl
 fake_mcp.js
 fake_agent.js
+runner_out.jsonl
+runner.js
 
 frontend/my-react-flow-app/src/demo/demoEvents.ts
 frontend/my-react-flow-app/src/hooks/useDemoEvents.ts
 keys/
 
-git

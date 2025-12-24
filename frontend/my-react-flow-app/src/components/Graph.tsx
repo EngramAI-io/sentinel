@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback, useMemo } from 'react';
+import React, { useEffect, useCallback, useMemo, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -235,10 +235,7 @@ const ToolNode: React.FC<NodeProps> = (props) => {
     data.selectedId != null &&
     data.requestId.toString() === data.selectedId;
 
-  const latencyLabel =
-    typeof data.avgLatencyMs === 'number'
-      ? `${Math.round(data.avgLatencyMs)}ms`
-      : '—';
+  const latencyLabel = typeof data.avgLatencyMs === 'number' ? `${Math.round(data.avgLatencyMs)}ms` : '—';
 
   const boxShadow = isSelected
     ? `
@@ -327,7 +324,6 @@ const ToolNode: React.FC<NodeProps> = (props) => {
         }}
       />
 
-      {/* Icon with glow */}
       <div
         style={{
           fontSize: 24,
@@ -337,7 +333,6 @@ const ToolNode: React.FC<NodeProps> = (props) => {
         {icon}
       </div>
 
-      {/* Content */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <div
           style={{
@@ -374,11 +369,7 @@ const ToolNode: React.FC<NodeProps> = (props) => {
           <span>
             <span style={{ color: '#06b6d4' }}>{latencyLabel}</span>
           </span>
-          {typeof data.errors === 'number' && data.errors > 0 && (
-            <span style={{ color: NEON_COLORS.red }}>
-              {data.errors} err
-            </span>
-          )}
+          {typeof data.errors === 'number' && data.errors > 0 && <span style={{ color: NEON_COLORS.red }}>{data.errors} err</span>}
         </div>
       </div>
     </div>
@@ -459,16 +450,51 @@ const EdgeGlowFilters: React.FC = () => (
 // ============================================
 
 export default function Graph({ events, onNodeClick, selectedNode }: GraphProps) {
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node[]>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge[]>([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [didFit, setDidFit] = useState(false);
+
+  const requestMethodById = useMemo(() => {
+    const map = new Map<number, string>();
+
+    for (const e of events) {
+      if (
+        e.direction === StreamDirection.Outbound &&
+        typeof e.request_id === 'number' &&
+        typeof e.method === 'string' &&
+        e.method.length > 0
+      ) {
+        map.set(e.request_id, e.method);
+      }
+    }
+
+    return map;
+  }, [events]);
+
+  const toolHealthMap = useMemo(() => {
+    const map = new Map<string, boolean>();
+
+    events.forEach((e) => {
+      if ((e.payload as any)?.result?.kind === 'tool.health') {
+        const { tool, healthy } = (e.payload as any).result;
+        map.set(tool, healthy);
+      }
+    });
+
+    return map;
+  }, [events]);
 
   // Compute aggregate stats
   const statsMap = useMemo(() => {
     const map = new Map<string, ToolStats>();
 
-    events.forEach((e) => {
-      if (!e.method || e.request_id == null) return;
-      const method = e.method;
+    for (const e of events) {
+      if (e.request_id == null) continue;
+
+      const method =
+        typeof e.method === 'string' && e.method.length > 0 ? e.method : requestMethodById.get(e.request_id);
+
+      if (!method) continue;
 
       const stats: ToolStats = map.get(method) ?? {
         total: 0,
@@ -485,26 +511,32 @@ export default function Graph({ events, onNodeClick, selectedNode }: GraphProps)
 
       if (e.direction === StreamDirection.Outbound) {
         stats.outbound += 1;
-      }
-
-      if (e.direction === StreamDirection.Inbound) {
+      } else if (e.direction === StreamDirection.Inbound) {
         stats.inbound += 1;
+
         if (typeof e.latency_ms === 'number') {
           stats.totalLatency += e.latency_ms;
           stats.maxLatency = Math.max(stats.maxLatency, e.latency_ms);
         }
-      }
 
-      if ((e.payload as any)?.error) {
-        stats.errors += 1;
+        // IMPORTANT: Sentinel puts JSON-RPC errors at payload.error (not payload.result.error)
+        if ((e.payload as any)?.error) {
+          stats.errors += 1;
+        }
       }
 
       map.set(method, stats);
-    });
+    }
 
     return map;
-  }, [events]);
+  }, [events, requestMethodById]);
 
+  // A stable key for when the TOOL SET changes (topology), not when stats change.
+  const toolSetKey = useMemo(() => Array.from(statsMap.keys()).sort().join('|'), [statsMap]);
+
+  // =========================
+  // TOPOLOGY BUILD (NO STATS)
+  // =========================
   useEffect(() => {
     const nodeMap = new Map<string, Node>();
     const edgeList: Edge[] = [];
@@ -524,7 +556,7 @@ export default function Graph({ events, onNodeClick, selectedNode }: GraphProps)
     nodeMap.set('agent', agentNode);
 
     // Tool nodes in radial layout
-    const toolMethods = Array.from(statsMap.keys());
+    const toolMethods = Array.from(statsMap.keys()).sort();
     const radius = 320;
     const clusterMap = new Map<string, ClusterStats>();
 
@@ -534,12 +566,7 @@ export default function Graph({ events, onNodeClick, selectedNode }: GraphProps)
       const y = centerY + radius * Math.sin(angle);
 
       const nodeId = `tool-${method}`;
-      const stats = statsMap.get(method)!;
 
-      const hasError = stats.errors > 0;
-      const avgLatency = stats.inbound > 0 ? stats.totalLatency / stats.inbound : 0;
-
-      const status: CustomNodeData['status'] = hasError ? 'error' : 'success';
       const shortLabel = method.split('.').pop() || method;
 
       const toolNode: Node = {
@@ -549,14 +576,14 @@ export default function Graph({ events, onNodeClick, selectedNode }: GraphProps)
         data: {
           label: shortLabel,
           method,
-          status,
-          requestId: stats.lastRequestId,
+          status: 'success',
+          requestId: undefined,
           selectedId: selectedNode,
-          calls: stats.total,
-          outbound: stats.outbound,
-          inbound: stats.inbound,
-          errors: stats.errors,
-          avgLatencyMs: avgLatency,
+          calls: 0,
+          outbound: 0,
+          inbound: 0,
+          errors: 0,
+          avgLatencyMs: 0,
         } as CustomNodeData,
         style: { zIndex: 5 },
       };
@@ -602,10 +629,7 @@ export default function Graph({ events, onNodeClick, selectedNode }: GraphProps)
         toolHandle = 'left';
       }
 
-      // Edge with neon styling
-      const edgeColor = hasError ? NEON_COLORS.red : NEON_COLORS.green;
-      const edgeClass = hasError ? 'edge-error' : 'edge-success';
-
+      // Edge (initial style; will be updated by stats effect)
       edgeList.push({
         id: `edge-${nodeId}`,
         source: 'agent',
@@ -613,11 +637,11 @@ export default function Graph({ events, onNodeClick, selectedNode }: GraphProps)
         sourceHandle: agentHandle,
         targetHandle: toolHandle,
         type: 'smoothstep',
-        className: edgeClass,
+        className: 'edge-success',
         style: {
-          stroke: edgeColor,
-          strokeWidth: hasError ? 3 : 2.5,
-          filter: `drop-shadow(0 0 3px ${edgeColor}) drop-shadow(0 0 6px ${edgeColor})`,
+          stroke: NEON_COLORS.green,
+          strokeWidth: 2.5,
+          filter: `drop-shadow(0 0 3px ${NEON_COLORS.green}) drop-shadow(0 0 6px ${NEON_COLORS.green})`,
         },
       });
     });
@@ -647,7 +671,95 @@ export default function Graph({ events, onNodeClick, selectedNode }: GraphProps)
 
     setNodes(Array.from(nodeMap.values()));
     setEdges(edgeList);
-  }, [statsMap, selectedNode, setNodes, setEdges]);
+  }, [toolSetKey, selectedNode]);
+
+  // =========================================
+  // STATS UPDATE (NO TOPOLOGY REBUILD)
+  // =========================================
+  useEffect(() => {
+    const toolMethods = Array.from(statsMap.keys());
+    const hasErrorByMethod = new Map<string, boolean>();
+
+    for (const method of toolMethods) {
+      const lastInboundForMethod = [...events].reverse().find((e) => {
+        if (e.direction !== StreamDirection.Inbound) return false;
+        if (e.request_id == null) return false;
+        const m = typeof e.method === 'string' && e.method.length > 0 ? e.method : requestMethodById.get(e.request_id);
+        return m === method;
+      });
+
+      const hasError = Boolean((lastInboundForMethod?.payload as any)?.error);
+      hasErrorByMethod.set(method, hasError);
+    }
+
+    setNodes((prev) =>
+      prev.map((node) => {
+        if (node.type !== 'tool') return node;
+
+        const data = node.data as CustomNodeData;
+        const method = data.method;
+        if (!method) return node;
+
+        const stats = statsMap.get(method);
+        if (!stats) return node;
+
+        const hasError = hasErrorByMethod.get(method) ?? false;
+        const avgLatency = stats.inbound > 0 ? stats.totalLatency / stats.inbound : 0;
+
+        return {
+          ...node,
+          data: {
+            ...data,
+            status: hasError ? 'error' : 'success',
+            requestId: stats.lastRequestId,
+            selectedId: selectedNode,
+            calls: stats.total,
+            outbound: stats.outbound,
+            inbound: stats.inbound,
+            errors: stats.errors,
+            avgLatencyMs: avgLatency,
+          } as CustomNodeData,
+        };
+      })
+    );
+
+    setEdges((prev) =>
+      prev.map((edge) => {
+        const target = edge.target;
+        if (!target?.startsWith('tool-')) return edge;
+
+        const method = target.slice('tool-'.length);
+        const hasError = hasErrorByMethod.get(method) ?? false;
+
+        const edgeColor = hasError ? NEON_COLORS.red : NEON_COLORS.green;
+        const edgeClass = hasError ? 'edge-error' : 'edge-success';
+
+        const nextStyle = {
+          ...(edge.style ?? {}),
+          stroke: edgeColor,
+          strokeWidth: hasError ? 3 : 2.5,
+          filter: `drop-shadow(0 0 3px ${edgeColor}) drop-shadow(0 0 6px ${edgeColor})`,
+        };
+
+        // Avoid unnecessary object churn if nothing changed
+        const curStyle = edge.style as any;
+        if (
+          edge.className === edgeClass &&
+          curStyle?.stroke === nextStyle.stroke &&
+          curStyle?.strokeWidth === nextStyle.strokeWidth &&
+          curStyle?.filter === nextStyle.filter
+        ) {
+          return edge;
+        }
+
+        return {
+          ...edge,
+          className: edgeClass,
+          style: nextStyle,
+        };
+      })
+    );
+  }, [events, requestMethodById, selectedNode, setNodes, setEdges, statsMap, toolHealthMap]);
 
   const onNodeClickHandler = useCallback(
     (_: React.MouseEvent, node: Node) => {
@@ -658,7 +770,7 @@ export default function Graph({ events, onNodeClick, selectedNode }: GraphProps)
         onNodeClick(null);
       }
     },
-    [onNodeClick],
+    [onNodeClick]
   );
 
   return (
@@ -671,16 +783,12 @@ export default function Graph({ events, onNodeClick, selectedNode }: GraphProps)
         onEdgesChange={onEdgesChange}
         onNodeClick={onNodeClickHandler}
         nodeTypes={nodeTypes}
-        fitView
+        fitView={!didFit}
         fitViewOptions={{ padding: 0.3 }}
+        onInit={() => setDidFit(true)}
         proOptions={{ hideAttribution: true }}
       >
-        <Background
-          variant={BackgroundVariant.Dots}
-          gap={20}
-          size={1}
-          color="rgba(255, 255, 255, 0.05)"
-        />
+        <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="rgba(255, 255, 255, 0.05)" />
         <Controls
           style={{
             background: BG_COLORS.secondary,
