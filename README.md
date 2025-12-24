@@ -99,7 +99,56 @@ One command patches Claude Desktop to route MCP requests through Sentinel while 
 - Debug log output in NDJSON for tooling integration  
 
 ---
-## Installation & Setup Guide
+## 🚀 Quick Installation
+
+### Option 1: Curl Install (Recommended)
+
+**Linux/macOS:**
+```bash
+curl -sSL https://raw.githubusercontent.com/EngramAI-io/Core/main/install.sh | bash
+```
+
+**Build from source:**
+```bash
+curl -sSL https://raw.githubusercontent.com/EngramAI-io/Core/main/install.sh | bash -s -- --source
+```
+
+**Custom install directory:**
+```bash
+INSTALL_DIR=$HOME/.local/bin curl -sSL https://raw.githubusercontent.com/EngramAI-io/Core/main/install.sh | bash
+```
+
+### Option 2: Homebrew (macOS/Linux)
+
+```bash
+# Add tap
+brew tap engramai-io/tap
+
+# Install
+brew install sentinel
+
+# Upgrade
+brew upgrade sentinel
+```
+
+### Option 3: Download Pre-built Binary
+
+Download the latest release for your platform:
+- [Linux x86_64](https://github.com/EngramAI-io/Core/releases/latest/download/sentinel-linux-x86_64)
+- [Linux ARM64](https://github.com/EngramAI-io/Core/releases/latest/download/sentinel-linux-aarch64)
+- [macOS x86_64](https://github.com/EngramAI-io/Core/releases/latest/download/sentinel-darwin-x86_64)
+- [macOS ARM64 (M1/M2)](https://github.com/EngramAI-io/Core/releases/latest/download/sentinel-darwin-aarch64)
+- [Windows x86_64](https://github.com/EngramAI-io/Core/releases/latest/download/sentinel-windows-x86_64.exe)
+
+Then:
+```bash
+chmod +x sentinel-*
+sudo mv sentinel-* /usr/local/bin/sentinel
+```
+
+---
+
+## 📚 Manual Build from Source
 
 ### Step 1: Install Prerequisites
 
