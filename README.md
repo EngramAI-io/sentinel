@@ -13,6 +13,12 @@ You can finally **see what your agent did, in what order, and trust the record a
 
 ---
 
+> ⚠️ **Project Status**  
+> Sentinel is under active development. Core architecture and guarantees are implemented, with ongoing work on hardening, UX polish, documentation, and extended verification tooling.  
+> Early adopters and reviewers are encouraged to provide feedback.
+
+---
+
 ## What Sentinel Is (and Is Not)
 
 **Sentinel is:**
@@ -199,42 +205,37 @@ One command patches Claude Desktop while preserving automatic backups.
 
 **Linux/macOS:**
 ```bash
-curl -sSL https://raw.githubusercontent.com/EngramAI-io/Core/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/EngramAI-io/Core/main/install.sh | sh
 ```
 
-**Build from source:**
+<!-- **Build from source:**
 ```bash
-curl -sSL https://raw.githubusercontent.com/EngramAI-io/Core/main/install.sh | bash -s -- --source
-```
+curl -fsSL https://raw.githubusercontent.com/EngramAI-io/Core/main/install.sh | sh -s -- --source
+``` -->
 
 **Custom install directory:**
 ```bash
-INSTALL_DIR=$HOME/.local/bin curl -sSL https://raw.githubusercontent.com/EngramAI-io/Core/main/install.sh | bash
+INSTALL_DIR=$HOME/.local/bin curl -fsSL https://raw.githubusercontent.com/EngramAI-io/Core/main/install.sh | sh
 ```
-
-### Option 2: Homebrew (macOS/Linux)
-
+### Option 2: Windows (PowerShell)
 ```bash
-# Add tap
-brew tap engramai-io/tap
-
-# Install
-brew install sentinel
-
-# Upgrade
-brew upgrade sentinel
+iwr https://raw.githubusercontent.com/EngramAI-io/Core/main/install.ps1 -UseBasicParsing | iex
 ```
+
+
 
 ### Option 3: Download Pre-built Binary
 
 Download the latest release for your platform:
-- [Linux x86_64](https://github.com/EngramAI-io/Core/releases/latest/download/sentinel-linux-x86_64)
-- [Linux ARM64](https://github.com/EngramAI-io/Core/releases/latest/download/sentinel-linux-aarch64)
-- [macOS x86_64](https://github.com/EngramAI-io/Core/releases/latest/download/sentinel-darwin-x86_64)
-- [macOS ARM64 (M1/M2)](https://github.com/EngramAI-io/Core/releases/latest/download/sentinel-darwin-aarch64)
-- [Windows x86_64](https://github.com/EngramAI-io/Core/releases/latest/download/sentinel-windows-x86_64.exe)
+- [Linux x86_64](https://github.com/EngramAI-io/Core/releases/download/v0.1.4/sentinel-x86_64-unknown-linux-musl.tar.gz)
+<!-- - [Linux ARM64](https://github.com/EngramAI-io/Core/releases/latest/download/sentinel-linux-aarch64) -->
+- [macOS x86_64](https://github.com/EngramAI-io/Core/releases/latest/download/sentinel-x86_64-apple-darwin.tar.gz)
+- [macOS ARM64 (M1/M2)](https://github.com/EngramAI-io/Core/releases/download/v0.1.4/sentinel-aarch64-apple-darwin.tar.gz)
+- [Windows x86_64](https://github.com/EngramAI-io/Core/releases/download/v0.1.4/sentinel-x86_64-pc-windows-msvc.zip)
 
-Then:
+---
+
+After Download (Linux/macOS only):
 ```bash
 chmod +x sentinel-*
 sudo mv sentinel-* /usr/local/bin/sentinel
@@ -249,21 +250,19 @@ sudo mv sentinel-* /usr/local/bin/sentinel
 #### 1.1 Install Rust and Cargo
 
 **On Windows:**
-1. Download and run the Rust installer from [https://rustup.rs/](https://rustup.rs/)
-2. Or use PowerShell:
-   ```powershell
-   # Download and run rustup-init.exe
-   Invoke-WebRequest -Uri "https://win.rustup.rs/x86_64" -OutFile "rustup-init.exe"
-   .\rustup-init.exe
-   ```
-3. Follow the installation prompts (defaults are recommended)
-4. Restart your terminal/PowerShell after installation
-5. Verify installation:
+1. Download and run the Rust installer by following the instructions at [https://www.rust-lang.org/tools/install](https://www.rust-lang.org/tools/install)
+2. Follow the installation prompts (defaults are recommended)
+3. Restart your terminal/PowerShell after installation
+4. Verify installation:
    ```powershell
    rustc --version
    cargo --version
    ```
    You should see versions like `rustc 1.70.0` or higher, and `cargo 1.70.0` or higher.
+5. If you're a **Windows Subsystem for Linux (WSL)** user, run the following in your terminal, then follow the on-screen instructions to install Rust.
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
 
 **On macOS:**
 ```bash
@@ -271,7 +270,7 @@ sudo mv sentinel-* /usr/local/bin/sentinel
 brew install rust
 
 # Or use rustup (recommended)
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh
 source $HOME/.cargo/env
 
 # Verify installation
@@ -282,7 +281,7 @@ cargo --version
 **On Linux:**
 ```bash
 # Install using rustup (recommended)
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh
 source $HOME/.cargo/env
 
 # Verify installation
@@ -313,22 +312,13 @@ node --version
 npm --version
 ```
 
-**On Linux (Ubuntu/Debian):**
+**On Linux:**
 ```bash
-# Using NodeSource repository
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-sudo apt-get install -y nodejs
+# Install nvm (Node Version Manager)
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
 
-# Verify installation
-node --version
-npm --version
-```
-
-**On Linux (Fedora/RHEL):**
-```bash
-# Using NodeSource repository
-curl -fsSL https://rpm.nodesource.com/setup_18.x | sudo bash -
-sudo dnf install -y nodejs
+# Install Node.js using nvm
+nvm install node
 
 # Verify installation
 node --version
@@ -339,8 +329,8 @@ npm --version
 
 ```bash
 # If you haven't already cloned the repository
-git clone <repository-url>
-cd sentinel
+git clone https://github.com/EngramAI-io/Core.git
+cd Core
 
 # Or if you're already in the project directory, verify you're in the right place
 # You should see Cargo.toml and a frontend/ directory
@@ -350,7 +340,7 @@ cd sentinel
 
 1. Navigate to the frontend directory:
    ```bash
-   cd frontend
+   cd frontend/my-react-flow-app
    ```
 
 2. Install frontend dependencies:
@@ -486,17 +476,21 @@ To restore the original config:
 ```
 sentinel/
 ├── src/
-│   ├── main.rs       # CLI and orchestration
-│   ├── proxy.rs      # Zero-copy stdio proxy
-│   ├── protocol.rs   # JSON-RPC structures
-│   ├── parser.rs     # NDJSON streaming parser
-│   ├── events.rs     # Event logging structures
-│   ├── session.rs    # Request/response correlation
-│   ├── server.rs     # HTTP/WebSocket server
-│   ├── config.rs     # Claude Desktop config helper
-│   ├── redaction.rs  # PII redaction
-│   └── panic.rs      # Panic recovery
-└── frontend/         # React dashboard
+│   ├── audit.rs             # Audit log writer and lifecycle management
+│   ├── audit_crypto.rs      # Signing, hashing, and encryption logic for tamper-evident logs
+│   ├── config.rs            # Claude Desktop config helper  
+│   ├── decrypt_audit_log.rs # Signing, hashing, and encryption logic for tamper-evident logs
+│   ├── events.rs            # Event logging structures
+│   ├── keygen.rs            # Offline audit log verification and decryption
+│   ├── main.rs              # CLI and orchestration
+│   ├── panic.rs             # Panic recovery
+│   ├── proxy.rs             # Zero-copy stdio proxy
+│   ├── protocol.rs          # JSON-RPC structures
+│   ├── parser.rs            # NDJSON streaming parser
+│   ├── session.rs           # Request/response correlation
+│   ├── server.rs            # HTTP/WebSocket server
+│   └── redaction.rs         # PII redaction
+└── frontend/                # React dashboard
     └── src/
         ├── App.tsx
         ├── components/
