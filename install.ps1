@@ -1,38 +1,45 @@
-# Installer for Engram Sentinel (Windows)
 $ErrorActionPreference = "Stop"
 
-Write-Host "🔍 Downloading Engram Sentinel..."
+$Repo = "EngramAI-io/Core"
+$BinaryName = "sentinel.exe"
+$Target = "x86_64-pc-windows-msvc"
+$Archive = "sentinel-$Target.zip"
 
-# Latest stable binary URL
-$binaryUrl = "https://github.com/EngramAI-io/Core/releases/download/v0.1.0/engram-sentinel-windows-x86_64.exe"
-
-# Install directory
-$targetDir = "$env:LOCALAPPDATA\EngramAI"
-if (!(Test-Path $targetDir)) {
-    New-Item -ItemType Directory -Path $targetDir | Out-Null
-}
-
-$binaryPath = Join-Path $targetDir "sentinel.exe"
-
-# Download binary
-Invoke-WebRequest -Uri $binaryUrl -OutFile $binaryPath
-
-Write-Host "✅ Download complete: $binaryPath"
-Write-Host "🚀 Adding to PATH..."
-
-$oldPath = [Environment]::GetEnvironmentVariable("Path", "User")
-
-if ($oldPath -notlike "*$targetDir*") {
-    $newPath = "$oldPath;$targetDir"
-    [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
-    Write-Host "✨ Sentinel added to PATH."
+$InstallDir = if ($env:INSTALL_DIR) {
+    $env:INSTALL_DIR
 } else {
-    Write-Host "ℹ️ PATH already contains Sentinel directory."
+    Join-Path $env:LOCALAPPDATA "Programs\Sentinel"
+}
+
+$Url = "https://github.com/$Repo/releases/latest/download/$Archive"
+
+Write-Host "Installing Sentinel..."
+Write-Host "Download: $Url"
+Write-Host "Install dir: $InstallDir"
+
+$temp = New-Item -ItemType Directory -Force -Path ([System.IO.Path]::GetTempPath() + [System.Guid]::NewGuid())
+$zipPath = Join-Path $temp $Archive
+
+Invoke-WebRequest $Url -OutFile $zipPath
+
+Expand-Archive $zipPath -DestinationPath $temp -Force
+
+New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+Copy-Item (Join-Path $temp $BinaryName) $InstallDir -Force
+
+# Add to PATH (user scope)
+$UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+
+if ($UserPath -notlike "*$InstallDir*") {
+    [Environment]::SetEnvironmentVariable(
+        "Path",
+        "$UserPath;$InstallDir",
+        "User"
+    )
+    Write-Host "Added Sentinel to PATH (user scope)"
 }
 
 Write-Host ""
-Write-Host "🎉 Installation complete!"
-Write-Host "Run Sentinel using:"
-Write-Host ""
-Write-Host "    sentinel run -- npx -y @modelcontextprotocol/server-filesystem"
-Write-Host ""
+Write-Host "Sentinel installed successfully."
+Write-Host "Restart PowerShell, then run:"
+Write-Host "  sentinel --help"
