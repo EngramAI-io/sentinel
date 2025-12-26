@@ -16,18 +16,30 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
+            ext: ""
+            archive: tar.gz
+
           - os: macos-latest
             target: x86_64-apple-darwin
+            ext: ""
+            archive: tar.gz
+
           - os: macos-latest
             target: aarch64-apple-darwin
+            ext: ""
+            archive: tar.gz
+
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            ext: ".exe"
+            archive: zip
 
     runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install system deps (Linux musl)
+      - name: Install musl tools (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt update
@@ -41,15 +53,24 @@ jobs:
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Package binary
+      - name: Package binary (Unix)
+        if: matrix.archive == 'tar.gz'
         shell: bash
         run: |
-          set -e
           mkdir -p dist
           cp target/${{ matrix.target }}/release/sentinel dist/
           tar -czf sentinel-${{ matrix.target }}.tar.gz -C dist sentinel
 
+      - name: Package binary (Windows)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          mkdir dist
+          Copy-Item target\${{ matrix.target }}\release\sentinel.exe dist\
+          Compress-Archive dist\sentinel.exe sentinel-${{ matrix.target }}.zip
+
       - name: Upload release artifact
         uses: softprops/action-gh-release@v1
         with:
-          files: sentinel-${{ matrix.target }}.tar.gz
+          files: |
+            sentinel-${{ matrix.target }}.${{ matrix.archive }}
