@@ -205,21 +205,21 @@ One command patches Claude Desktop while preserving automatic backups.
 
 **Linux/macOS:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/EngramAI-io/Core/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/EngramAI-io/sentinel/main/install.sh | sh
 ```
 
 <!-- **Build from source:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/EngramAI-io/Core/main/install.sh | sh -s -- --source
+curl -fsSL https://raw.githubusercontent.com/EngramAI-io/sentinel/main/install.sh | sh -s -- --source
 ``` -->
 
 **Custom install directory:**
 ```bash
-INSTALL_DIR=$HOME/.local/bin curl -fsSL https://raw.githubusercontent.com/EngramAI-io/Core/main/install.sh | sh
+INSTALL_DIR=$HOME/.local/bin curl -fsSL https://raw.githubusercontent.com/EngramAI-io/sentinel/main/install.sh | sh
 ```
 ### Option 2: Windows (PowerShell)
 ```bash
-iwr https://raw.githubusercontent.com/EngramAI-io/Core/main/install.ps1 -UseBasicParsing | iex
+iwr https://raw.githubusercontent.com/EngramAI-io/sentinel/main/install.ps1 -UseBasicParsing | iex
 ```
 
 
@@ -227,10 +227,10 @@ iwr https://raw.githubusercontent.com/EngramAI-io/Core/main/install.ps1 -UseBasi
 ### Option 3: Download Pre-built Binary
 
 Download the latest release for your platform:
-- [Linux x86_64](https://github.com/EngramAI-io/Core/releases/download/v0.1.4/sentinel-x86_64-unknown-linux-musl.tar.gz)
-- [macOS x86_64](https://github.com/EngramAI-io/Core/releases/latest/download/sentinel-x86_64-apple-darwin.tar.gz)
-- [macOS ARM64 (M1/M2)](https://github.com/EngramAI-io/Core/releases/download/v0.1.4/sentinel-aarch64-apple-darwin.tar.gz)
-- [Windows x86_64](https://github.com/EngramAI-io/Core/releases/download/v0.1.4/sentinel-x86_64-pc-windows-msvc.zip)
+- [Linux x86_64](https://github.com/EngramAI-io/sentinel/releases/download/v0.1.5/sentinel-x86_64-unknown-linux-musl.tar.gz)
+- [macOS x86_64](https://github.com/EngramAI-io/sentinel/releases/download/v0.1.5/sentinel-x86_64-apple-darwin.tar.gz)
+- [macOS ARM64 (M1/M2)](https://github.com/EngramAI-io/sentinel/releases/download/v0.1.5/sentinel-aarch64-apple-darwin.tar.gz)
+- [Windows x86_64](https://github.com/EngramAI-io/sentinel/releases/download/v0.1.5/sentinel-x86_64-pc-windows-msvc.zip)
 
 ---
 
@@ -239,7 +239,21 @@ After Download (Linux/macOS only):
 chmod +x sentinel-*
 sudo mv sentinel-* /usr/local/bin/sentinel
 ```
+---
 
+## 📖 Usage & Documentation
+
+Once Sentinel is installed, see the full usage guide for:
+
+- Running Sentinel with MCP servers
+- WebSocket authentication
+- Audit logging & encryption
+- Claude Desktop integration
+- Common deployment patterns
+- Troubleshooting
+
+👉 **Read the full guide:** 
+📄 [`docs/usage.md`](./docs/usage.md)
 ---
 
 ## 📚 Manual Build from Source
@@ -328,8 +342,8 @@ npm --version
 
 ```bash
 # If you haven't already cloned the repository
-git clone https://github.com/EngramAI-io/Core.git
-cd Core
+git clone https://github.com/EngramAI-io/sentinel.git
+cd sentinel
 
 # Or if you're already in the project directory, verify you're in the right place
 # You should see Cargo.toml and a frontend/ directory
