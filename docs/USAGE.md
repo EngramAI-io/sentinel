@@ -49,7 +49,6 @@ Sentinel wraps MCP servers, not agents.
 
 ```bash
 sentinel run
-sentinel install
 sentinel keygen
 sentinel recipient-keygen
 sentinel verify
