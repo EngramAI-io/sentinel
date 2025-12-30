@@ -13,6 +13,23 @@ You can finally **see what your agent did, in what order, and trust the record a
 
 ---
 
+## 🚀 Try It Now (30 seconds)
+
+```bash
+# 1. Install Sentinel
+curl -fsSL https://raw.githubusercontent.com/EngramAI-io/sentinel/main/install.sh | sh
+
+# 2. Run Sentinel in front of any MCP server
+<your-mcp-client> sentinel run -- <your-mcp-server>
+
+# For example:
+node mcp_client.js sentinel run --audit-log test_audit.jsonl -- node mcp_server.js
+
+# 3. Open the dashboard
+# http://localhost:3000
+```
+---
+
 > ⚠️ **Project Status**  
 > Sentinel is under active development. Core architecture and guarantees are implemented, with ongoing work on hardening, UX polish, documentation, and extended verification tooling.  
 > Early adopters and reviewers are encouraged to provide feedback.
@@ -183,6 +200,38 @@ One command patches Claude Desktop while preserving automatic backups.
 **Pattern:** Transparent Sidecar (T-Tap)  
 **Philosophy:** Fail Open  
 **Tech Stack:** Rust (Tokio) • TypeScript • React • React Flow • WebSockets  
+
+```
+                  ┌──────────────┐
+                  │   LLM Agent  │
+                  └──────┬───────┘
+                         │
+            responses ▲  │   ▼ requests
+                         │
+                  MCP (JSON-RPC over stdio)
+                         │
+            responses ▲  │   ▼ requests
+                         │
+                  ┌──────────────────┐
+                  │     Sentinel     │  ← observe only (fail-open)
+                  │  • parse MCP     │
+                  │  • order events  │
+                  │  • emit telemetry│
+                  └──────┬───────────┘
+                         │
+            responses ▲  │   ▼ requests
+                         │
+                  unchanged MCP stream
+                         │
+            responses ▲  │   ▼ requests
+                         │
+                  ┌──────────────────┐
+                  │   MCP Server /   │
+                  │       Tools      │
+                  └──────────────────┘
+
+```
+
 
 ---
 
