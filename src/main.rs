@@ -19,6 +19,7 @@ mod audit;
 mod keygen;
 mod audit_crypto;
 mod config;
+mod frontend;
 
 use parser::Parser as LogParser;
 use proxy::run_proxy;

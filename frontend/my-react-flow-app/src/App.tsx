@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import Graph from './components/Graph';
 import NodeDetails from './components/NodeDetails';
 import { useWebSocket } from './hooks/useWebSocket';

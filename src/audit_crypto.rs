@@ -1,5 +1,3 @@
-// src/audit_crypto.rs
-
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use chacha20poly1305::{
     aead::{Aead, KeyInit, Payload},

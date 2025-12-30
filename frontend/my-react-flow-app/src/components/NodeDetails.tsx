@@ -1,4 +1,3 @@
-import React from 'react';
 import type { McpLog } from '../types';
 import { StreamDirection } from '../types';
 
