@@ -243,7 +243,6 @@ async fn run(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
 
     let (ws_tx, _) = broadcast::channel::<events::McpLog>(1000);
     let ws_tx_for_audit = ws_tx.clone();
-    let ws_tx_for_server = ws_tx.clone();
 
     let state = Arc::new(ServerState {
         tx: ws_tx.clone(),

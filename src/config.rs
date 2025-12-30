@@ -1,6 +1,6 @@
 use serde_json::{json, Value};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[cfg(target_os = "windows")]
 fn get_config_path() -> Option<PathBuf> {

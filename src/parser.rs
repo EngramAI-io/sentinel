@@ -2,7 +2,6 @@ use crate::events::{McpLog, StreamDirection, TapEvent};
 use crate::protocol::JsonRpcMessage;
 use crate::session::Session;
 
-use bytes::Bytes;
 use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -37,7 +36,7 @@ impl Parser {
     
     pub async fn process_stream(
         mut self,
-        mut tap_rx: mpsc::Receiver<(TapEvent)>,
+        mut tap_rx: mpsc::Receiver<TapEvent>,
     ) -> anyhow::Result<()> {
         let mut expected_id = 1u64;
             while let Some(evt) = tap_rx.recv().await {

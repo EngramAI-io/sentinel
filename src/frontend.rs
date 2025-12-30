@@ -1,4 +1,4 @@
-use rust_embed::RustEmbed;
+use rust_embed::{RustEmbed, Embed};
 
 #[derive(RustEmbed)]
 #[folder = "frontend/my-react-flow-app/dist"]
