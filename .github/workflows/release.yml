@@ -39,6 +39,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # -----------------------------
+      # ✅ NEW: Frontend build
+      # -----------------------------
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Build frontend assets
+        working-directory: frontend/my-react-flow-app
+        run: |
+          npm ci
+          npm run build
+      # -----------------------------
+
       - name: Install musl tools (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -74,3 +89,9 @@ jobs:
         with:
           files: |
             sentinel-${{ matrix.target }}.${{ matrix.archive }}
+
+      - name: Debug frontend output
+        run: |
+          pwd
+          ls -la frontend
+          ls -la frontend/my-react-flow-app
