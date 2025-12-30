@@ -20,8 +20,6 @@ use zeroize::Zeroize;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 /// ===== Key generation =====
-/// We store recipient "private key" as raw 32 bytes (base64).
-/// We compute pubkey via X25519(sk, basepoint).
 pub fn keygen_recipient(out_dir: impl AsRef<Path>) -> Result<(), String> {
     let out_dir = out_dir.as_ref();
     fs::create_dir_all(out_dir)
@@ -121,22 +119,19 @@ struct EncryptedRecord {
 
 /// ===== Envelope logic =====
 
-fn build_envelope(run_id: &str, recipient_pub: &PublicKey, dek: &DataKey) -> KeyEnvelope {
-    // Generate ephemeral secret bytes + derive ephemeral pubkey.
+fn build_envelope(run_id: &str, recipient_pub: &PublicKey, dek: &DataKey) -> Result<KeyEnvelope, String> {
     let mut eph_sk = [0u8; 32];
     OsRng.fill_bytes(&mut eph_sk);
 
     let eph_pk_bytes = x25519(eph_sk, X25519_BASEPOINT_BYTES);
     let eph_pk = PublicKey::from(eph_pk_bytes);
 
-    // X25519 shared secret: x25519(eph_sk, recipient_pub)
     let shared = x25519(eph_sk, *recipient_pub.as_bytes());
-    // HKDF over shared secret
     let hk = Hkdf::<Sha256>::new(None, &shared);
 
     let mut wrap_key = [0u8; 32];
     hk.expand(b"sentinel/dek-wrap/v1", &mut wrap_key)
-        .expect("hkdf expand");
+        .map_err(|_| "hkdf expand failed".to_string())?;
 
     let cipher = ChaCha20Poly1305::new(Key::from_slice(&wrap_key));
 
@@ -151,9 +146,9 @@ fn build_envelope(run_id: &str, recipient_pub: &PublicKey, dek: &DataKey) -> Key
                 aad: run_id.as_bytes(),
             },
         )
-        .expect("wrap encrypt");
+        .map_err(|_| "wrap encrypt failed".to_string())?;
 
-    KeyEnvelope {
+    Ok(KeyEnvelope {
         record_type: "KeyEnvelope".into(),
         version: 1,
         run_id: run_id.into(),
@@ -164,7 +159,7 @@ fn build_envelope(run_id: &str, recipient_pub: &PublicKey, dek: &DataKey) -> Key
         kex_alg: "x25519".into(),
         kdf_alg: "hkdf-sha256".into(),
         aead_alg: "chacha20poly1305".into(),
-    }
+    })
 }
 
 fn unwrap_envelope(env: &KeyEnvelope, recipient_sk: &[u8; 32]) -> Result<DataKey, String> {
@@ -177,7 +172,6 @@ fn unwrap_envelope(env: &KeyEnvelope, recipient_sk: &[u8; 32]) -> Result<DataKey
     let mut eph_pk_arr = [0u8; 32];
     eph_pk_arr.copy_from_slice(&eph_pk_bytes);
 
-    // shared = x25519(recipient_sk, eph_pk)
     let shared = x25519(*recipient_sk, eph_pk_arr);
     let hk = Hkdf::<Sha256>::new(None, &shared);
 
@@ -240,7 +234,7 @@ impl<'a, W: AsyncWrite + Unpin> AuditSink<'a, W> {
             let recipient_pub = PublicKey::from(pub_bytes);
 
             let dek = DataKey::random();
-            let env = build_envelope(run_id, &recipient_pub, &dek);
+            let env = build_envelope(run_id, &recipient_pub, &dek)?;
 
             let line = serde_json::to_string(&env).map_err(|e| format!("serialize env: {}", e))?;
             out.write_all(format!("{}\n", line).as_bytes())
@@ -308,15 +302,10 @@ impl<'a, W: AsyncWrite + Unpin> AuditSink<'a, W> {
     }
 }
 
-/// If the log starts with KeyEnvelope, decrypt it into a plaintext temp file and return that path.
-/// If it does not, return the original log path.
-///
-/// we use NamedTempFile::keep() so the returned PathBuf actually exists after returning.
 pub fn maybe_decrypt_to_temp_plaintext(
     log_path: &str,
     recipient_privkey_b64_path: Option<&str>,
 ) -> Result<PathBuf, String> {
-    // Peek first line
     let file = File::open(log_path).map_err(|e| format!("open audit log: {}", e))?;
     let mut reader = BufReader::new(file);
 
@@ -329,26 +318,21 @@ pub fn maybe_decrypt_to_temp_plaintext(
         return Err("audit log is empty".to_string());
     }
 
-    // If not a KeyEnvelope -> plaintext log
     let env_parse = serde_json::from_str::<KeyEnvelope>(first_line.trim());
     if env_parse.is_err() {
         return Ok(PathBuf::from(log_path));
     }
     let env = env_parse.unwrap();
     if env.record_type != "KeyEnvelope" {
-        // Treat as plaintext if some other record got put first
         return Ok(PathBuf::from(log_path));
     }
 
-    // Encrypted log -> need recipient priv key
     let priv_path = recipient_privkey_b64_path
         .ok_or("encrypted audit log requires recipient private key for verification")?;
     let recipient_sk = read_b64_32(Path::new(priv_path))?;
 
-    // Derive DEK from envelope
     let dek = unwrap_envelope(&env, &recipient_sk)?;
 
-    // Re-open and stream decrypt the rest (starting AFTER first line)
     let file = File::open(log_path).map_err(|e| format!("re-open audit log: {}", e))?;
     let reader = BufReader::new(file);
 
@@ -365,7 +349,6 @@ pub fn maybe_decrypt_to_temp_plaintext(
             continue;
         }
 
-        // Skip the first line (KeyEnvelope)
         if !saw_first {
             saw_first = true;
             continue;
@@ -411,7 +394,6 @@ pub fn maybe_decrypt_to_temp_plaintext(
         writeln!(tmp, "{}", pt_str).map_err(|e| format!("write decrypted: {}", e))?;
     }
 
-    // Persist the tempfile so returning PathBuf is valid
     let (_file, path) = tmp
         .keep()
         .map_err(|e| format!("persist temp file: {}", e))?;

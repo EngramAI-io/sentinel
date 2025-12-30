@@ -15,6 +15,8 @@ use serde_json;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::broadcast;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
+use std::collections::VecDeque;
+
 
 #[derive(Deserialize)]
 struct AuthQuery {
@@ -24,7 +26,7 @@ struct AuthQuery {
 pub struct ServerState {
     pub tx: broadcast::Sender<McpLog>,
     pub auth_token: Option<String>,
-    pub history: RwLock<Vec<McpLog>>,
+    pub history: RwLock<VecDeque<McpLog>>,
 }
 
 pub async fn start_server(

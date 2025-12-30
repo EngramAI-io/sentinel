@@ -34,12 +34,20 @@ impl Parser {
             pending_spans: HashMap::new(),
         }
     }
-
+    
     pub async fn process_stream(
         mut self,
         mut tap_rx: mpsc::Receiver<(TapEvent)>,
     ) -> anyhow::Result<()> {
+        let mut expected_id = 1u64;
             while let Some(evt) = tap_rx.recv().await {
+                if evt.event_id != expected_id {
+                    eprintln!(
+                        "⚠️  Warning: Missing event IDs. Expected {}, got {}",
+                        expected_id, evt.event_id
+                    );
+                }
+                expected_id = evt.event_id + 1;
                 let direction = evt.direction;
                 let bytes = evt.bytes.clone();
 

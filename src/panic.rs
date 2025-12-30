@@ -12,7 +12,9 @@ pub fn install_panic_hook() {
             info
         );
 
-        if let Err(e) = std::fs::write("sentinel_panic.log", panic_log) {
+        let log_path = std::env::temp_dir().join("sentinel_panic.log");
+
+        if let Err(e) = std::fs::write(&log_path, panic_log) {
             eprintln!("Warning: Failed to write panic log: {}", e);
         }
     }));

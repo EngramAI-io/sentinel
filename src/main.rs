@@ -4,6 +4,8 @@ use std::sync::Arc;
 use tokio::signal;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use uuid::Uuid;
+use std::path::Path;
+use std::collections::VecDeque;
 
 mod proxy;
 mod protocol;
@@ -48,7 +50,7 @@ struct RunArgs {
     audit_log: String,
 
     #[arg(long)]
-    signing_key_b64_path: String,
+    signing_key_b64_path: Option<String>,
 
     #[arg(long)]
     encrypt_recipient_pubkey_b64_path: Option<String>,
@@ -99,10 +101,73 @@ async fn main() {
                 process::exit(1);
             }
         }
-        Commands::Verify(_) | Commands::Keygen(_) | Commands::RecipientKeygen(_) => {
-            eprintln!("❌ Not shown — unchanged from your version");
+        Commands::Verify(args) => {
+            let log_path = match audit_crypto::maybe_decrypt_to_temp_plaintext(
+                &args.log,
+                args.decrypt_recipient_privkey_b64_path.as_deref(),
+            ) {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("❌ VERIFY FAILED (decryption): {}", e);
+                    process::exit(2);
+                }
+            };
+
+            match audit::verify_audit_log_file(
+                log_path.to_string_lossy().as_ref(),
+                &args.pubkey_b64_path,
+            ) {
+                Ok(()) => {
+                    println!("✅ OK: audit log verified successfully");
+                    process::exit(0);
+                }
+                Err(e) => {
+                    eprintln!("❌ VERIFY FAILED: {}", e);
+                    process::exit(2);
+                }
+            }
+        }
+        Commands::Keygen(args) => {
+            if let Err(e) = keygen::generate_keypair(&args.out_dir) {
+                eprintln!("❌ Key generation failed: {}", e);
+                std::process::exit(1);
+            }
+            println!("✅ Keypair generated successfully");
+            std::process::exit(0);
+        }
+        Commands::RecipientKeygen(args) => {
+            if let Err(e) = audit_crypto::keygen_recipient(&args.out_dir) {
+                eprintln!("❌ Recipient key generation failed: {}", e);
+                std::process::exit(1);
+            }
+            println!("✅ Recipient keypair generated successfully");
+            std::process::exit(0);
         }
     }
+}
+
+/// Read the first checkpoint from an existing audit log to extract key_id
+fn read_first_checkpoint(log_path: &Path) -> Result<audit::AuditRecord, Box<dyn std::error::Error>> {
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
+    
+    let file = File::open(log_path)?;
+    let reader = BufReader::new(file);
+    
+    for line in reader.lines() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        
+        let record: audit::AuditRecord = serde_json::from_str(&line)?;
+        
+        if matches!(record, audit::AuditRecord::Checkpoint { .. }) {
+            return Ok(record);
+        }
+    }
+    
+    Err("No checkpoint found in existing audit log".into())
 }
 
 async fn run(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -115,12 +180,65 @@ async fn run(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("   Run ID: {}", run_id);
     eprintln!("   Audit log: {}", args.audit_log);
 
-    let signing_key =
-        audit::load_signing_key_b64(&args.signing_key_b64_path)?;
+    let signing_key = if let Some(ref key_path) = args.signing_key_b64_path {
+        Some(audit::load_signing_key_b64(key_path)?)
+    } else {
+        eprintln!("⚠️  No signing key provided - audit log will NOT be tamper-evident");
+        eprintln!("   Use --signing-key-b64-path to enable signed checkpoints");
+        eprintln!("   Run 'sentinel keygen' to generate a keypair");
+        None
+    };
+
+    let audit_path = Path::new(&args.audit_log);
+    if let Some(ref sk) = signing_key {
+        if audit_path.exists() && audit_path.metadata()?.len() > 0 {
+            eprintln!("📋 Existing audit log found, validating signing key...");
+            
+            match read_first_checkpoint(audit_path) {
+                Ok(audit::AuditRecord::Checkpoint { key_id: existing_key_id, .. }) => {
+                    let current_key_id = audit::key_id_from_pubkey(&sk.verifying_key());
+                    
+                    if existing_key_id != current_key_id {
+                        return Err(format!(
+                            "Signing key mismatch!\n\
+                             Existing log uses key_id: {}\n\
+                             Current key has key_id: {}\n\
+                             Cannot append to log with different signing key.\n\
+                             Either use the original key or start a new audit log.",
+                            existing_key_id,
+                            current_key_id
+                        ).into());
+                    }
+                    
+                    eprintln!("   ✓ Signing key matches (key_id: {})", current_key_id);
+                }
+                Ok(_) => {
+                    eprintln!("   ⚠️  Warning: Existing log has no checkpoint, cannot validate key");
+                }
+                Err(e) => {
+                    eprintln!("   ⚠️  Warning: Could not read existing log: {}", e);
+                    eprintln!("   Proceeding anyway (will truncate log)");
+                }
+            }
+        }
+    }
+
+    let enable_redaction = std::env::var("SENTINEL_REDACT_PII")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(true);
+    
+    if enable_redaction {
+        eprintln!("🔒 PII redaction enabled");
+        eprintln!("   Set SENTINEL_REDACT_PII=false to disable");
+    } else {
+        eprintln!("⚠️  PII redaction DISABLED");
+    }
 
     let (raw_tx, raw_rx) = mpsc::channel::<events::RawTap>(1000);
     let (tap_tx, tap_rx) = mpsc::channel::<events::TapEvent>(1000);
     let (log_tx, mut log_rx) = mpsc::channel::<events::McpLog>(1000);
+
+    let log_tx_clone = log_tx.clone();
 
     let (ws_tx, _) = broadcast::channel::<events::McpLog>(1000);
     let ws_tx_for_audit = ws_tx.clone();
@@ -129,7 +247,7 @@ async fn run(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
     let state = Arc::new(ServerState {
         tx: ws_tx.clone(),
         auth_token: ws_token.clone(),
-        history: RwLock::new(Vec::new()),
+        history: RwLock::new(VecDeque::new()),
     });
 
     // Assign event IDs
@@ -138,14 +256,18 @@ async fn run(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
         let mut rx = raw_rx;
 
         while let Some(r) = rx.recv().await {
-            let _ = tap_tx
+            if tap_tx
                 .send(events::TapEvent {
                     event_id: id,
                     direction: r.direction,
                     bytes: r.bytes,
                     observed_ts_ms: r.observed_ts_ms,
                 })
-                .await;
+                .await
+                .is_err()
+            {
+                break;
+            }
             id += 1;
         }
     });
@@ -160,7 +282,7 @@ async fn run(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
     // Parser
     tokio::spawn(async move {
         if let Err(e) =
-            LogParser::new(run_id_clone, log_tx, session)
+            LogParser::new(run_id_clone, log_tx_clone, session)
                 .process_stream(tap_rx)
                 .await
         {
@@ -168,104 +290,196 @@ async fn run(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    let audit_path = args.audit_log.clone();
+    let audit_log_path = args.audit_log.clone();
     let encrypt_path = args.encrypt_recipient_pubkey_b64_path.clone();
     let checkpoint_every = args.checkpoint_every;
     let state_for_audit = state.clone();
 
+    let (audit_shutdown_tx, mut audit_shutdown_rx) = mpsc::channel::<()>(1);
+
     // Audit + history + broadcast
     let audit_handle = tokio::spawn(async move {
-        let mut file = tokio::fs::OpenOptions::new()
+        let mut file = match tokio::fs::OpenOptions::new()
             .create(true)
             .truncate(true)
             .write(true)
-            .open(&audit_path)
+            .open(&audit_log_path)
             .await
-            .unwrap();
+        {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("❌ Failed to open audit log: {}", e);
+                return;
+            }
+        };
 
-        let mut sink = audit_crypto::AuditSink::new(
+        let mut sink = match audit_crypto::AuditSink::new(
             &mut file,
             &run_id,
             encrypt_path.as_deref(),
         )
         .await
-        .unwrap();
+        {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("❌ Failed to initialize audit sink: {}", e);
+                return;
+            }
+        };
 
         let mut prev_hash = [0u8; 32];
-        let mut since = 0;
-        let mut last = 0;
+        let mut since_last_checkpoint = 0;
+        let mut last_event_id = 0u64;
 
-        while let Some(log) = log_rx.recv().await {
-            let (rec, hash) =
-                audit::make_event_record(&prev_hash, log.clone()).unwrap();
+        loop {
+            let maybe_log = tokio::select! {
+                log = log_rx.recv() => log,
+                _ = audit_shutdown_rx.recv() => {
+                    eprintln!("🔒 Audit loop received shutdown signal");
+                    None
+                }
+            };
 
-            sink.write_record(
-                "Event",
-                &serde_json::to_string(&rec).unwrap(),
-            )
-            .await
-            .unwrap();
+            let mut log = match maybe_log {
+                Some(l) => l,
+                None => break,
+            };
+
+            if enable_redaction {
+                redaction::redact_log(&mut log);
+            }
+
+            let (rec, hash) = match audit::make_event_record(&prev_hash, log.clone()) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("❌ Failed to create event record: {}", e);
+                    continue;
+                }
+            };
+
+            let rec_json = match serde_json::to_string(&rec) {
+                Ok(j) => j,
+                Err(e) => {
+                    eprintln!("❌ Failed to serialize event record: {}", e);
+                    continue;
+                }
+            };
+
+            if let Err(e) = sink.write_record("Event", &rec_json).await {
+                eprintln!("❌ Failed to write event record: {}", e);
+                continue;
+            }
 
             prev_hash = hash;
-            last = log.event_id;
-            since += 1;
+            last_event_id = log.event_id;
+            since_last_checkpoint += 1;
 
-            if since >= checkpoint_every {
+            if signing_key.is_some() && since_last_checkpoint >= checkpoint_every {
                 let cp = audit::make_checkpoint_record(
-                    &signing_key,
+                    signing_key.as_ref().unwrap(),
                     &run_id,
                     events::current_timestamp_ms(),
-                    last,
+                    last_event_id,
                     &prev_hash,
                 );
 
-                sink.write_record(
-                    "Checkpoint",
-                    &serde_json::to_string(&cp).unwrap(),
-                )
-                .await
-                .unwrap();
+                let cp_json = match serde_json::to_string(&cp) {
+                    Ok(j) => j,
+                    Err(e) => {
+                        eprintln!("❌ Failed to serialize checkpoint: {}", e);
+                        since_last_checkpoint = 0;
+                        continue;
+                    }
+                };
 
-                since = 0;
+                if let Err(e) = sink.write_record("Checkpoint", &cp_json).await {
+                    eprintln!("❌ Failed to write checkpoint: {}", e);
+                }
+
+                since_last_checkpoint = 0;
             }
 
-            // store for replay
             {
                 let mut hist = state_for_audit.history.write().await;
-                hist.push(log.clone());
+                hist.push_back(log.clone());
                 if hist.len() > 10_000 {
-                    hist.remove(0);
+                    hist.pop_front();
                 }
             }
 
-            // broadcast live
             let _ = ws_tx_for_audit.send(log);
         }
 
-        sink.flush().await.unwrap();
+        if let Some(ref sk) = signing_key {
+            if last_event_id > 0 {
+                eprintln!("🔒 Writing final checkpoint for event_id {}", last_event_id);
+                
+                let final_cp = audit::make_checkpoint_record(
+                    sk,
+                    &run_id,
+                    events::current_timestamp_ms(),
+                    last_event_id,
+                    &prev_hash,
+                );
+
+                if let Ok(cp_json) = serde_json::to_string(&final_cp) {
+                    if let Err(e) = sink.write_record("Checkpoint", &cp_json).await {
+                        eprintln!("❌ Failed to write final checkpoint: {}", e);
+                    } else {
+                        eprintln!("✓ Final checkpoint written");
+                    }
+                }
+            }
+        }
+
+        if let Err(e) = sink.flush().await {
+            eprintln!("❌ Failed to flush audit log: {}", e);
+        } else {
+            eprintln!("✓ Audit log closed cleanly");
+        }
     });
 
-    // WebSocket server
     let ws_bind = args.ws_bind.clone();
-    let ws_token_clone = ws_token.clone();
     let state_for_server = state.clone();
 
     tokio::spawn(async move {
-        let _ = start_server(state_for_server, &ws_bind).await;
+        if let Err(e) = start_server(state_for_server, &ws_bind).await {
+            eprintln!("❌ WebSocket server error: {}", e);
+        }
     });
 
-    // Shutdown handling
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
     tokio::spawn(async move {
-        let _ = signal::ctrl_c().await;
+        if let Err(e) = signal::ctrl_c().await {
+            eprintln!("❌ Error setting up Ctrl+C handler: {}", e);
+            return;
+        }
+        eprintln!("\n🛑 Received Ctrl+C, shutting down gracefully...");
         let _ = shutdown_tx.send(()).await;
     });
 
     tokio::select! {
-        _ = run_proxy(args.command, raw_tx) => {}
-        _ = shutdown_rx.recv() => {}
+        result = run_proxy(args.command, raw_tx) => {
+            match result {
+                Ok(_) => eprintln!("📋 Proxy completed successfully"),
+                Err(e) => eprintln!("❌ Proxy error: {}", e),
+            }
+        }
+        _ = shutdown_rx.recv() => {
+            eprintln!("📋 Shutdown signal received");
+        }
     }
 
-    let _ = audit_handle.await;
+    drop(log_tx);
+    if let Err(e) = audit_shutdown_tx.send(()).await {
+        eprintln!("⚠️  Failed to signal audit shutdown: {}", e);
+    }
+
+    eprintln!("⏳ Waiting for audit log to finalize...");
+    if let Err(e) = audit_handle.await {
+        eprintln!("⚠️  Audit task join error: {}", e);
+    }
+
+    eprintln!("✅ Sentinel shutdown complete");
     Ok(())
 }

@@ -37,14 +37,14 @@ pub async fn run_proxy(
             match reader.read_until(b'\n', &mut line).await {
                 Ok(0) => break,
                 Ok(_) => {
-                    // Forward FIRST
+
+                    let observed_ts_ms = current_timestamp_ms(); // capture timestamp before forwarding
+
                     if child_stdin.write_all(&line).await.is_err() {
                         break;
                     }
                     let _ = child_stdin.flush().await;
 
-                    // FIX: lossless tap
-                    let observed_ts_ms = current_timestamp_ms();
                     let data = Bytes::copy_from_slice(&line);
                     if tx_out
                         .send(RawTap {
